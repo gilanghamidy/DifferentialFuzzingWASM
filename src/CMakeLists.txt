@@ -3,7 +3,7 @@ add_executable(runner-spidermonkey runner-spidermonkey.cpp)
 add_compile_definitions(DEBUG)
 
 add_dependencies(runner-spidermonkey
-    build-moz
+    build-v8
 )
 
 target_include_directories(runner-spidermonkey 

@@ -33,6 +33,31 @@ add_custom_target(build-moz make -j$$(nproc)
     USES_TERMINAL)
 
 # Build the buildscript for V8
+message(STATUS "Generate Build for V8")
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/v8)
+
+set(V8_GEN_ARGS "is_debug=true target_cpu=\"x64\" v8_target_cpu=\"x64\" v8_enable_disassembler=true v8_expose_symbols=true")
+
+# Get relative path
+execute_process(COMMAND python -c "import os.path; print os.path.relpath(\"${CMAKE_BINARY_DIR}/third-party/v8\", \"${CMAKE_SOURCE_DIR}/third-party/v8\")"
+    OUTPUT_VARIABLE V8_BUILD_PATH
+    COMMAND_ECHO STDOUT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+message(INFO "Path: ${V8_BUILD_PATH}" )
+
+execute_process(COMMAND ${CMAKE_SOURCE_DIR}/third-party/depot_tools/gn gen ${V8_BUILD_PATH} --args=${V8_GEN_ARGS}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/third-party/v8
+    COMMAND_ECHO STDOUT
+    RESULT_VARIABLE RES_MOZ_GEN
+    OUTPUT_FILE "/proc/self/fd/0")
+
+    # Target for V8
+add_custom_target(build-v8 ninja
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/v8
+    DEPENDS build-moz # Ordering the build
+    USES_TERMINAL)
+
 
 if(${RES_MOZ_GEN})
     message(FATAL_ERROR "Something wrong with generating build for SpiderMonkey: " ${RES_MOZ_GEN} )
