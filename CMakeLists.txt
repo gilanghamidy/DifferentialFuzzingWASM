@@ -32,6 +32,8 @@ add_custom_target(build-moz make -j$$(nproc)
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/spidermonkey
     USES_TERMINAL)
 
+# Build the buildscript for V8
+
 if(${RES_MOZ_GEN})
     message(FATAL_ERROR "Something wrong with generating build for SpiderMonkey: " ${RES_MOZ_GEN} )
 endif()
