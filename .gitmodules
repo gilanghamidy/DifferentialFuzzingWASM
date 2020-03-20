@@ -1,0 +1,12 @@
+[submodule "third-party/v8"]
+	path = third-party/v8
+	url = https://github.com/gilanghamidy/DifferentialFuzzingWASM-v8.git
+[submodule "third-party/gecko-dev"]
+	path = third-party/gecko-dev
+	url = https://github.com/gilanghamidy/DifferentialFuzzingWASM-gecko-dev.git
+[submodule "third-party/wabt"]
+	path = third-party/wabt
+	url = https://github.com/WebAssembly/wabt
+[submodule "third-party/depot_tools"]
+	path = third-party/depot_tools
+	url = https://chromium.googlesource.com/chromium/tools/depot_tools.git
