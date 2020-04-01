@@ -12,6 +12,18 @@ message(STATUS "Refreshing git submodule")
 execute_process(COMMAND git submodule update             
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+# Build the buildscript for wabt
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/wabt)
+execute_process(COMMAND cmake ${CMAKE_SOURCE_DIR}/third-party/wabt -G Ninja -DBUILD_TESTS=OFF
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/wabt
+    RESULT_VARIABLE RES_MOZ_GEN
+    OUTPUT_FILE "/proc/self/fd/0")
+
+    # Target for wabt
+add_custom_target(build-wabt ninja
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/wabt
+    USES_TERMINAL)
+
 # Build the buildscript for SpiderMonkey
 message(STATUS "Generate Build for SpiderMonkey")
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/spidermonkey)
@@ -29,6 +41,7 @@ message(INFO "Moz Version: ${MOZ_VERSION}")
 
 # Target for SpiderMonkey
 add_custom_target(build-moz make -j$$(nproc)
+    DEPENDS build-wabt
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/spidermonkey
     USES_TERMINAL)
 
@@ -36,7 +49,7 @@ add_custom_target(build-moz make -j$$(nproc)
 message(STATUS "Generate Build for V8")
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/v8)
 
-set(V8_GEN_ARGS "is_debug=true target_cpu=\"x64\" v8_target_cpu=\"x64\" v8_enable_disassembler=true v8_expose_symbols=true")
+set(V8_GEN_ARGS "is_debug=true target_cpu=\"x64\" v8_target_cpu=\"x64\" v8_enable_disassembler=true v8_expose_symbols=true v8_optimized_debug=false is_component_build=true use_custom_libcxx=false")
 
 # Get relative path
 execute_process(COMMAND python -c "import os.path; print os.path.relpath(\"${CMAKE_BINARY_DIR}/third-party/v8\", \"${CMAKE_SOURCE_DIR}/third-party/v8\")"

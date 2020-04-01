@@ -8,7 +8,8 @@
 #include <iostream>
 #include <fstream>
 #include <memory>
-#include <ext/stdio_filebuf.h>
+
+#include "runner-common.h"
 
 /* The class of the global object. */
 static JSClass global_class = {
@@ -16,42 +17,6 @@ static JSClass global_class = {
     JSCLASS_GLOBAL_FLAGS,
     &JS::DefaultGlobalClassOps
 };
-
-std::vector<uint8_t> OpenInput(char const* fileName) {
-  std::ifstream inputFile(fileName);
-  inputFile.seekg(0, std::ios::end);
-  size_t length = inputFile.tellg();
-  inputFile.seekg(0, std::ios::beg);
-  std::vector<uint8_t> buf;
-  buf.resize(length);
-  inputFile.read((char*)buf.data(), length);
-  return buf;
-}
-
-void DumpDisassemble(std::ostream& output, std::vector<uint8_t> const& instructions) {
-  // Create temporary file
-  std::ofstream tempOut("/tmp/instruct.bin");
-  tempOut.write((char*)instructions.data(), instructions.size());
-  tempOut.flush();
-  tempOut.close();
-
-  // Call objdump
-  // Najong hack to get istream lol
-  std::string objdumpCmd { "objdump -D -Mintel,x86-64 -b binary -m i386 /tmp/instruct.bin" };
-  int posix_handle = fileno(::popen(objdumpCmd.c_str(), "r"));
-  __gnu_cxx::stdio_filebuf<char> filebuf(posix_handle, std::ios::in);
-  std::istream is(&filebuf);
-
-  // Print objdump output
-  int i = 0;
-  while(!is.eof()) {
-    std::string line;
-    std::getline(is, line);
-    i++;
-    if(i > 7) // Skip first 7 line
-      output << line << "\n";
-  }
-}
 
 int main(int argc, const char *argv[])
 {
@@ -85,11 +50,19 @@ int main(int argc, const char *argv[])
 
 
 
-      auto inputInstruction = OpenInput(argv[1]);
+      auto inputInstruction = dfw::OpenInput(argv[1]);
       auto res = js::ext::CompileWasmBytes(cx, inputInstruction.data(), inputInstruction.size());
+      
+      dfw::DumperLooper([&] (auto arg) { 
+        auto func = (*res)[arg];
+        return func 
+                ? std::make_optional(func->instructions) 
+                : std::nullopt;
+      });
 
+      /*
       std::vector<JS::Value> args;
-
+      
       args.emplace_back(JS::Int32Value(25));
       args.emplace_back();
       args.emplace_back(js::ext::CreateBigIntValue(cx, 150ll));
@@ -98,8 +71,10 @@ int main(int argc, const char *argv[])
       bool invokeRes = (*res)["subi64"].Invoke(cx, args);
 
       std::cout << "Invoke result: " << invokeRes << std::endl;
-      JS::Value& val = args[0];
-      std::cout << "Func result: " << js::ext::GetBigIntValue(val) /*.toInt32()*/ << std::endl;
+      JS::Value& val = args[0];*/
+      //std::cout << "Func result: " << js::ext::GetBigIntValue(val) /*.toInt32()*/ << std::endl;
+      
+
       /*
       for(auto& func : res->functions()) {
         std::cout << "Function Name: " << func.name << "\nInstructions: \n";
