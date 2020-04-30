@@ -63,4 +63,16 @@
     local.get 0
     local.get 1
     f64.div)
+  (func (export "void") (param i32)
+    local.get 0
+    local.get 0
+    i32.mul
+    drop
+  )
+  (func (export "trap")
+    i32.const 51651654
+    i32.load offset=0
+    drop
+  )
+  (memory 1 2)
 )

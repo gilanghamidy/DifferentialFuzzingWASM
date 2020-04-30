@@ -17,6 +17,42 @@ std::vector<uint8_t> dfw::OpenInput(char const* fileName) {
   return buf;
 }
 
+void dfw::PrintJSValue(JSValue const& v) {
+  switch(v.type) {
+    case WasmType::I32: {
+      std::cout << "i32: " << v.i32 << std::endl;
+      break;
+    }
+    case WasmType::I64: {
+      std::cout << "i64: " << v.i64 << std::endl;
+      break;
+    }
+    case WasmType::F32: {
+      std::cout << "f32: " << v.f32 << std::endl;
+      break;
+    }
+    case WasmType::F64: {
+      std::cout << "f64: " << v.f64 << std::endl;
+      break;
+    }
+    default: {
+      std::cout << "void" << std::endl;
+      break;
+    }
+  }
+}
+
+char const* dfw::WasmTypeToString(WasmType t) {
+  switch (t)
+  {
+  case WasmType::I32: return "i32";
+  case WasmType::I64: return "i64";
+  case WasmType::F32: return "f32";
+  case WasmType::F64: return "f64";
+  default:            return "";
+  }
+}
+
 void dfw::DumpDisassemble(std::ostream& output, std::vector<uint8_t> const& instructions) {
   // Create temporary file
   std::ofstream tempOut("/tmp/instruct.bin");
@@ -24,16 +60,17 @@ void dfw::DumpDisassemble(std::ostream& output, std::vector<uint8_t> const& inst
   tempOut.flush();
   tempOut.close();
 
+  
+
   // Call objdump
   // Najong hack to get istream lol
   std::string objdumpCmd { "objdump -D -Mintel,x86-64 -b binary -m i386 /tmp/instruct.bin" };
   int posix_handle = fileno(::popen(objdumpCmd.c_str(), "r"));
   __gnu_cxx::stdio_filebuf<char> filebuf(posix_handle, std::ios::in);
   std::istream is(&filebuf);
-
+  
   // Print objdump output
-  int i = 0;
-  while(!is.eof()) {
+  for(int i = 0; !is.eof();) {
     std::string line;
     std::getline(is, line);
     i++;
@@ -67,13 +104,13 @@ void dfw::DumperLooper(std::function<dfw::FuncNameToBinFunctor> transform) {
     if(input == "\\q")
       break;
     
-    auto func = transform(input); //(*res)[input];
+     //(*res)[input];
+    std::cout << "Dumping function: " << input << std::endl;
     
-    if(!func) {
+    if(auto func = transform(input); !func) 
       std::cout << "Unknown function!\n";
-      continue;
-    }
-
-    dfw::DumpDisassemble(std::cout, func.value());
+    else 
+      dfw::DumpDisassemble(std::cout, func.value());
   }
 }
+

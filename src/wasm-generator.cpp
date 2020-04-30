@@ -62,6 +62,7 @@ int main(int argc, char* argv[]) {
       v8::ext::GenerateRandomWasm(isolate, randomizedData, generatedWasm);
       std::cout << "Writing WASM...\n";
       dfw::WriteOutput(argv[1], generatedWasm);
+      
       //std::for_each(randomizedData.begin(), randomizedData.end(), [&] (uint8_t p) { std::cout << (uint32_t)p << " "; });
     }
   }

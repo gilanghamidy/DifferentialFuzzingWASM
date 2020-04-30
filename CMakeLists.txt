@@ -4,8 +4,14 @@ project(DifferentialFuzzingWASM VERSION 0.1)
 
 # Requirements
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_C_COMPILER "clang")
+set(CMAKE_CXX_COMPILER "clang++")
+
+#if(${CMAKE_CXX_COMPILER_VERSION} LESS 10)
+#    message(FATAL_ERROR "Need clang > 10, found: " ${CMAKE_CXX_COMPILER_VERSION})
+#endif()
 
 # Execute git submodule update
 message(STATUS "Refreshing git submodule")
@@ -49,7 +55,11 @@ add_custom_target(build-moz make -j$$(nproc)
 message(STATUS "Generate Build for V8")
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/v8)
 
-set(V8_GEN_ARGS "is_debug=true target_cpu=\"x64\" v8_target_cpu=\"x64\" v8_enable_disassembler=true v8_expose_symbols=true v8_optimized_debug=false is_component_build=true use_custom_libcxx=false")
+if(NOT DEFINED V8_ARGS_DEBUG)
+    set(V8_ARGS_DEBUG "false")
+endif()
+
+set(V8_GEN_ARGS "is_debug=${V8_ARGS_DEBUG} target_cpu=\"x64\" v8_target_cpu=\"x64\" v8_enable_disassembler=true v8_enable_v8_checks=true v8_expose_symbols=true v8_optimized_debug=true is_component_build=true use_custom_libcxx=false v8_enable_test_features=true")
 
 # Get relative path
 execute_process(COMMAND python -c "import os.path; print os.path.relpath(\"${CMAKE_BINARY_DIR}/third-party/v8\", \"${CMAKE_SOURCE_DIR}/third-party/v8\")"

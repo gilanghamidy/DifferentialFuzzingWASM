@@ -2,7 +2,6 @@
 # runner-common sources
 SET(RUNNER_COMMON_SRC runner-common.cpp)
 
-
 # runner-spidermonkey executable
 add_executable(runner-spidermonkey ${RUNNER_COMMON_SRC} runner-spidermonkey.cpp)
 add_compile_definitions(DEBUG)
@@ -42,5 +41,19 @@ target_link_libraries(wasm-gen
     -lv8_libplatform
 )
 target_link_directories(wasm-gen 
+    PUBLIC ${CMAKE_BINARY_DIR}/third-party/v8
+)
+
+# random-gen
+add_executable(random-gen ${RUNNER_COMMON_SRC} random-gen.cpp)
+add_dependencies(random-gen build-v8)
+target_include_directories(random-gen 
+    PUBLIC "${CMAKE_SOURCE_DIR}/third-party/v8/include"
+)
+target_link_libraries(random-gen 
+    -lv8_ext_diff_fuzz 
+    -lv8_libplatform
+)
+target_link_directories(random-gen 
     PUBLIC ${CMAKE_BINARY_DIR}/third-party/v8
 )
