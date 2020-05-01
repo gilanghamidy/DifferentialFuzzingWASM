@@ -13,4 +13,8 @@
 	url = https://chromium.googlesource.com/chromium/tools/depot_tools.git
 [submodule "third-party/quince"]
 	path = third-party/quince
+	branch = master
 	url = https://github.com/gilanghamidy/quince.git
+[submodule "third-party/quince-sqlite"]
+	path = third-party/quince-sqlite
+	url = https://github.com/gilanghamidy/quince_sqlite.git
