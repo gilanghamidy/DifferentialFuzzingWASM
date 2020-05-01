@@ -13,4 +13,4 @@
 	url = https://chromium.googlesource.com/chromium/tools/depot_tools.git
 [submodule "third-party/quince"]
 	path = third-party/quince
-	url = https://github.com/mshepanski/quince.git
+	url = https://github.com/gilanghamidy/quince.git
