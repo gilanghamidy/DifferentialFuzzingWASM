@@ -14,6 +14,8 @@
 #include <initializer_list>
 #include <iostream>
 #include <sstream>
+#include <cmath>
+#include <limits>
 
 namespace dfw {
 std::vector<uint8_t> OpenInput(char const *fileName);
@@ -60,6 +62,7 @@ template <typename T> struct CommandLineArg {
 
 template <> struct CommandLineArg<bool> {
   bool value{false};
+  bool set{true};
   static constexpr bool canConsume = false;
   char const *flag;
   bool required;
@@ -197,233 +200,129 @@ struct DataRange {
   }
 };
 
+template<typename T, size_t typeSize = sizeof(T)>
+struct StorageSelector;
+
+template<typename T>
+struct StorageSelector<T, sizeof(int32_t)> {
+  using Type = int32_t;
+};
+
+template<typename T>
+struct StorageSelector<T, sizeof(int64_t)> {
+  using Type = int64_t;
+};
+
+template<typename T>
+using StorageSelectorT = typename StorageSelector<T>::Type;
+
 template<>
 inline bool DataRange::get<bool>() {
   return get<uint8_t>() % 2 == 0;
 }
 
-#define ERROR_IF_FALSE(x, msg) if (!(x)) { printf((msg)); printf("\n"); return -1; }
-#define RETURN_IF_FALSE(x) if (!(x)) return false
+template<>
+inline double DataRange::get<double>() {
+  // Try getting value first
+  uint64_t temp = get<uint64_t>();
+  double val = *reinterpret_cast<double*>(&temp);
+  if(std::isnan(val))
+    return std::numeric_limits<double>::quiet_NaN();
+  else
+    return val;
+}
+
+template<>
+inline float DataRange::get<float>() {
+  // Try getting value first
+  uint32_t temp = get<uint32_t>();
+  float val = *reinterpret_cast<float*>(&temp);
+  if(std::isnan(val))
+    return std::numeric_limits<float>::quiet_NaN();
+  else
+    return val;
+}
+
+
+
 
 
 void PrintJSValue(JSValue const& v);
 
+class FuzzerRunnerBase {
+public:
+  void Looper();
+  std::vector<uint8_t> LoadMemory(char const* memfile);
+  std::vector<dfw::JSValue> GenerateArgs(std::vector<WasmType> const& param_types, DataRange& random);
+  bool SingleRun(dfw::FuzzerRunnerCLArgs const& args);
+  int Run(int argc, char const* argv[]);
+
+  virtual std::vector<FunctionInfo> Functions() = 0;
+  virtual std::optional<std::vector<uint8_t>> DumpFunction(std::string const&) = 0;
+  virtual std::optional<dfw::JSValue> InvokeFunction(std::string const&, std::vector<JSValue> const&) = 0;
+  virtual bool InitializeExecution() = 0;
+  virtual bool InitializeModule(dfw::FuzzerRunnerCLArgs const&) = 0;
+  virtual bool MarshallMemoryImport(uint8_t*, size_t) = 0;
+
+  virtual ~FuzzerRunnerBase();
+};
+
 template<typename T>
-class FuzzerRunner {
+class FuzzerRunner : public FuzzerRunnerBase {
   T runner;
 public:
   template<typename... Args>
   FuzzerRunner(Args&&... a) : runner(std::forward<Args>(a)...) { }
-  
-  void Looper() {
-    while(true) {
-      std::string input;
-      std::cout << ">>> ";
 
-      // Split args
-      std::cin >> input;
-
-      // quit
-      if(input == "quit" || input == "q")
-        break;
-      else if(input == "dump") {
-        // Get function name from next token
-        std::cin >> input;
-        if(auto func_dump = runner.DumpFunction(input); !func_dump) {
-          std::cout << "Unknown function: " << input << std::endl;
-        } else {
-          std::cout << "Dumping function: " << input << std::endl;
-          dfw::DumpDisassemble(std::cout, func_dump.value());
-        }
-      } else if(input == "list") {
-        for(dfw::FunctionInfo const& info : runner.Functions()) {
-          std::cout << "func \"" << info.function_name << "\" (param ";
-          bool first = true;
-          for(auto t : info.parameters) {
-            if(first) first = false; else std::cout << ", ";
-            std::cout << WasmTypeToString(t);
-          }
-          std::cout << ") (return " << WasmTypeToString(info.return_type) << ")";
-          std::cout << std::endl;
-        }
-      } else if(input == "invoke") {
-        std::cin >> input;
-        decltype(auto) functions = runner.Functions();
-        auto selected_func = std::find_if(functions.begin(), functions.end(),
-                                          [&] (dfw::FunctionInfo const& info) { 
-                                            return info.function_name == input;
-                                          });
-        if(selected_func == functions.end()) {
-          std::cout << "Unknown function: " << input << std::endl;
-        } else {
-          // Get the remaining string
-          std::getline(std::cin, input);
-
-          std::istringstream arg_str(input);
-
-          std::vector<JSValue> args;
-          JSValue val;
-          int cnt = 0;
-          for(WasmType param : selected_func->parameters) {
-            if(arg_str.eof()) 
-              break;
-            cnt += 1;
-            val.type = param;
-            try {
-              switch(param) {
-                case WasmType::I32: {
-                  arg_str >> val.i32;
-                  args.emplace_back(val);
-                  break;
-                }
-                case WasmType::I64: {
-                  arg_str >> val.i64;
-                  args.emplace_back(val);
-                  break;
-                }
-                case WasmType::F32: {
-                  arg_str >> val.f32;
-                  args.emplace_back(val);
-                  break;
-                }
-                case WasmType::F64: {
-                  arg_str >> val.f64;
-                  args.emplace_back(val);
-                  break;
-                }
-                default: break;
-              }
-            } catch(std::exception const& ex) {
-              std::cout << "Wrong argument #" << cnt << ": expected: " << WasmTypeToString(val.type) << std::endl;
-              break;
-            }
-          }
-
-          if(args.size() != selected_func->parameters.size()) {
-            std::cout << "Wrong argument count: " << args.size() << ", expected: " << selected_func->parameters.size() << std::endl;
-            continue;
-          }
-          
-          std::cout << "Invoke function: " << input << std::endl;
-          std::optional<dfw::JSValue> res = runner.InvokeFunction(selected_func->function_name, args);
-          
-          if(res != std::nullopt) {
-            PrintJSValue(res.value());
-          } else {
-            std::cout << "Error when invoking function" << std::endl;
-          }
-          
-          continue;
-        }
-
-      } else if(input == "instantiate") {
-        if(!runner.InitializeExecution())
-          std::cout << "Cannot instantiate WASM module." << std::endl;
-      } else if(input == "memimportgen") {
-        std::vector<uint32_t> mem_input;
-        int a = 0;
-        std::generate_n(std::inserter(mem_input, mem_input.end()), 16 * 64 * 1024 / 4, [&]() { return a++; });
-
-        auto res = runner.MarshallMemoryImport((uint8_t*)mem_input.data(), mem_input.size() * 4);
-        if(res == false)
-          std::cout << "Failed marshalling memory\n";
-      } else if(input == "memimport") {
-        std::cin >> input; // memory file
-        LoadMemory(input.c_str());
-        std::cout << "Memory imported." << std::endl;
-      } else {
-        std::cout << "Unknown command: " << input << std::endl;
-      }      
-      // Flush the remainder
-      std::getline(std::cin, input);
-    }
+  virtual std::vector<FunctionInfo> Functions() {
+    return runner.Functions();
   }
 
-  auto LoadMemory(char const* memfile) {
-    auto mem_input = OpenInput(memfile);
-    runner.MarshallMemoryImport(mem_input.data(), mem_input.size());
-    return mem_input;
+  virtual std::optional<std::vector<uint8_t>> DumpFunction(std::string const& f) {
+    return runner.DumpFunction(f);
   }
 
-  std::vector<dfw::JSValue> GenerateArgs(std::vector<WasmType> const& param_types, DataRange& random) {
-    std::vector<dfw::JSValue> args;
-    JSValue arg;
-    for(auto param_type : param_types) {
-      arg.type = param_type;
-      switch (param_type)
-      {
-      case WasmType::I32:
-        arg.i32 = random.get<uint32_t>();
-        break;
-      case WasmType::I64:
-        arg.i64 = random.get<uint64_t>();
-        break;
-      case WasmType::F32:
-        arg.f32 = random.get<float>();
-        break;
-      case WasmType::F64:
-        arg.f64 = random.get<double>();
-        break;
-      default:
-        std::cerr << "Unexpected param_type when generating arguments\n";
-        std::abort();
-      }
-      args.push_back(arg);
-    }
-    return args;
+  virtual std::optional<dfw::JSValue> InvokeFunction(std::string const& f, std::vector<JSValue> const& args) {
+    return runner.InvokeFunction(f, args);
   }
 
-  bool SingleRun(dfw::FuzzerRunnerCLArgs const& args) {
-    std::optional<std::vector<uint8_t>> memory;
-    if(args.memory.set) {
-      memory.emplace(LoadMemory(args.memory.value));
-    }
-
-    RETURN_IF_FALSE(runner.InitializeExecution());
-
-    // Loop function call, cover all possible functions
-    decltype(auto) functions = runner.Functions();
-    DataRange random { *memory };
-    decltype(auto) funcs = runner.Functions();
-    size_t func_count = funcs.size();
-
-    for(int i = 0; i < args.count.value; ++i) {
-      size_t select_func = random.get<uint16_t>() % func_count;
-      
-      std::cout << "Invoke: " << funcs[select_func].function_name << " ";
-      std::optional<dfw::JSValue> res = 
-          runner.InvokeFunction(funcs[select_func].function_name, 
-                                GenerateArgs(funcs[select_func].parameters, random));
-      
-      if(res.has_value()) {
-        std::cout << " success: "; 
-        PrintJSValue(*res);
-      } else {
-        std::cout << " failed";
-      }
-
-      std::cout << std::endl;
-    }
-    
-
-    return true;
+  virtual bool InitializeExecution() {
+    return runner.InitializeExecution();
   }
-  
-  int Run(int argc, char const* argv[]) {
-    dfw::FuzzerRunnerCLArgs args { argc, argv };
 
-    ERROR_IF_FALSE(runner.InitializeModule(args), "Failed initializing and compiling WASM");
-    
-    if(std::strcmp(args.mode, "interactive") == 0) {
-      Looper();
-    } else if(std::strcmp(args.mode, "single") == 0) {
-      ERROR_IF_FALSE(SingleRun(args), "Failed executing test case.");
-    }
-    return 0;
+  virtual bool InitializeModule(dfw::FuzzerRunnerCLArgs const& a) {
+    return runner.InitializeModule(a);
   }
+
+  virtual bool MarshallMemoryImport(uint8_t* m, size_t s) {
+    return runner.MarshallMemoryImport(m, s);
+  }
+
 };
 
-#undef ERROR_IF_FALSE
+
+
+template<typename T>
+void PrintHexRepresentation(T v) {
+  StorageSelectorT<T>* ptr = reinterpret_cast<StorageSelectorT<T>*>(&v);
+  std::cout << "(0x" << std::hex << *ptr << ")";
+  std::cout << std::dec;
+}
+
+template<typename T, typename... TArgs>
+void strjoin_loop(std::string& s, T arg, TArgs... args) {
+  s.append(arg);
+  if constexpr(sizeof...(args) != 0)
+    strjoin_loop(s, args...);
+}
+
+template<typename... TArgs>
+std::string strjoin(TArgs... args) {
+  std::string ret;
+  strjoin_loop(ret, args...);
+  return ret;
+}
+
 
 } // namespace dfw
 

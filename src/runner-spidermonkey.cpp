@@ -80,32 +80,40 @@ namespace {
       return this->compiled_wasm->InstantiateWasm(this->context);
     }
 
+    
+
     void MarshallArgs(std::vector<JS::Value>& ret, std::vector<dfw::JSValue> const& args) {
       for(auto& arg : args) {
         switch(arg.type) {
           case dfw::WasmType::I32: {
+            std::cout << "i32: " << arg.i32 << " ";
+            dfw::PrintHexRepresentation(arg.i32);
             ret.emplace_back(JS::Int32Value(arg.i32));
-            std::cout << "i32 ";
             break;
           }
           case dfw::WasmType::I64: {
+            std::cout << "i64: " << arg.i64 << " ";
+            dfw::PrintHexRepresentation(arg.i64);
             ret.emplace_back(js::ext::CreateBigIntValue(this->context, arg.i64));
-            std::cout << "i64 ";
             break;
           }
           case dfw::WasmType::F32: {
-            ret.emplace_back(JS::DoubleValue(arg.f32));
-            std::cout << "f32 ";
+            double d = arg.f32; // Implicit conversion first
+            std::cout << "f32: " << arg.f32 << " ";
+            dfw::PrintHexRepresentation(d);
+            ret.emplace_back(JS::DoubleValue(d));
             break;
           }
           case dfw::WasmType::F64: {
+            std::cout << "f64: " << arg.f64 << " ";
+            dfw::PrintHexRepresentation(arg.f64);
             ret.emplace_back(JS::DoubleValue(arg.f64));
-            std::cout << "f64 ";
             break;
           }
           default:
             break;
         }
+        std::cout << std::endl;
       }
     }
 
@@ -133,13 +141,15 @@ namespace {
     }
 
     std::optional<dfw::JSValue> InvokeFunction(std::string const& name, std::vector<dfw::JSValue> const& args) {
+      
+      
       std::vector<JS::Value> callStack;
       callStack.emplace_back(); // Return value
       callStack.emplace_back(); // MAGIC (empty)
       MarshallArgs(callStack, args);
-
+      std::cout.flush();
       bool invokeRes = (*compiled_wasm)[name]->Invoke(context, callStack);
-
+      
       if(!invokeRes)
         return std::nullopt;
       else

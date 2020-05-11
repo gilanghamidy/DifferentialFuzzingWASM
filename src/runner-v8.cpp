@@ -131,29 +131,36 @@ std::vector<v8::Local<v8::Value>> RunnerV8::MarshallArgs(std::vector<dfw::JSValu
   for(auto& arg : args) {
     switch(arg.type) {
       case dfw::WasmType::I32: {
+        std::cout << "i32: " << arg.i32 << " ";
+        dfw::PrintHexRepresentation(arg.i32);
         ret.emplace_back(v8::Int32::NewFromUnsigned(this->isolate, arg.i32));
-        std::cout << "i32 ";
         break;
       }
       case dfw::WasmType::I64: {
+        std::cout << "i64: " << arg.i64 << " ";
+        dfw::PrintHexRepresentation(arg.i64);
         ret.emplace_back(v8::BigInt::NewFromUnsigned(this->isolate, arg.i64));
-        std::cout << "i64 ";
         break;
       }
       case dfw::WasmType::F32: {
-        ret.emplace_back(v8::Number::New(this->isolate, arg.f32));
-        std::cout << "f32 ";
+        double d = arg.f32; // Implicit conversion first
+        std::cout << "f32: " << arg.f32 << " ";
+        dfw::PrintHexRepresentation(d);
+        ret.emplace_back(v8::Number::New(this->isolate, d));
         break;
       }
       case dfw::WasmType::F64: {
+        std::cout << "f64: " << arg.f64 << " ";
+        dfw::PrintHexRepresentation(arg.f64);
         ret.emplace_back(v8::Number::New(this->isolate, arg.f64));
-        std::cout << "f64 ";
         break;
       }
       default:
         break;
     }
+    std::cout << std::endl;
   }
+  std::cout.flush();
   return ret;
 }
 
@@ -206,8 +213,6 @@ int main(int argc, char const* argv[]) {
 
     {
       ret = dfw::FuzzerRunner<RunnerV8>{isolate, context}.Run(argc, argv);
-
-      
     }
   }
 

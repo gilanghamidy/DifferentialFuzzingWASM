@@ -2,6 +2,15 @@
 # runner-common sources
 SET(RUNNER_COMMON_SRC runner-common.cpp)
 
+execute_process(COMMAND git rev-parse HEAD
+    OUTPUT_VARIABLE FUZZER_COMMIT_ID
+    COMMAND_ECHO STDOUT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+message(INFO "Commit ID : ${FUZZER_COMMIT_ID}")
+
+add_compile_definitions(FUZZER_COMMIT="${FUZZER_COMMIT_ID}")
+
 # runner-spidermonkey executable
 add_executable(runner-spidermonkey ${RUNNER_COMMON_SRC} runner-spidermonkey.cpp)
 add_compile_definitions(DEBUG)
@@ -57,3 +66,27 @@ target_link_libraries(random-gen
 target_link_directories(random-gen 
     PUBLIC ${CMAKE_BINARY_DIR}/third-party/v8
 )
+
+# runner-coordinator.cpp
+add_executable(runner-coordinator 
+    ${RUNNER_COMMON_SRC} 
+    runner-coordinator.cpp
+    fuzzer-db.cpp
+)
+target_include_directories(runner-coordinator
+    PUBLIC "${CMAKE_SOURCE_DIR}/third-party/quince/include"
+    PUBLIC "${CMAKE_SOURCE_DIR}/third-party/quince-sqlite/include"
+)
+target_link_libraries(runner-coordinator
+    quince
+    quince-sqlite
+    sqlite3
+    boost_date_time
+    boost_filesystem
+    boost_thread
+    pthread
+)
+target_link_directories(runner-coordinator
+    PUBLIC ${CMAKE_BINARY_DIR}/lib
+)
+# target_compile_options(runner-coordinator PUBLIC -E)
