@@ -140,13 +140,15 @@ struct FuzzerRunnerCLArgs {
   dfw::CommandLineArg<char const*> input { "-input", true };
   dfw::CommandLineArg<char const*> mode { "-mode", false, "interactive" };
   dfw::CommandLineArg<char const*> memory { "-memory", false };
+  dfw::CommandLineArg<char const*> function { "-function", false };
   dfw::CommandLineArg<int> count { "-invoke-count", false, 50 };
   char const* exec_path;
   FuzzerRunnerCLArgs(int argc, char const* argv[]) : exec_path(argv[0]) {
     dfw::CommandLineConsumer { argc, argv, 
                                std::ref(input),
                                std::ref(mode),
-                               std::ref(memory) };
+                               std::ref(memory),
+                               std::ref(function) };
   }
 };
 
@@ -164,6 +166,11 @@ struct FunctionInfo {
   std::string function_name;
   WasmType return_type;
   std::vector<WasmType> parameters;
+};
+
+struct GlobalInfo {
+  std::string global_name;
+  WasmType type;
 };
 
 struct JSValue {
@@ -255,15 +262,18 @@ public:
   std::vector<uint8_t> LoadMemory(char const* memfile);
   std::vector<dfw::JSValue> GenerateArgs(std::vector<WasmType> const& param_types, DataRange& random);
   bool SingleRun(dfw::FuzzerRunnerCLArgs const& args);
+  bool InvokeFunction(dfw::FuzzerRunnerCLArgs const& args);
   int Run(int argc, char const* argv[]);
 
-  virtual std::vector<FunctionInfo> Functions() = 0;
+  virtual std::vector<FunctionInfo> const& Functions() = 0;
   virtual std::optional<std::vector<uint8_t>> DumpFunction(std::string const&) = 0;
   virtual std::optional<dfw::JSValue> InvokeFunction(std::string const&, std::vector<JSValue> const&) = 0;
   virtual bool InitializeExecution() = 0;
   virtual bool InitializeModule(dfw::FuzzerRunnerCLArgs const&) = 0;
   virtual bool MarshallMemoryImport(uint8_t*, size_t) = 0;
-
+  virtual std::vector<GlobalInfo> Globals() = 0;
+  virtual void SetGlobal(std::string const& arg, JSValue value) = 0;
+  virtual JSValue GetGlobal(std::string const& arg) = 0;
   virtual ~FuzzerRunnerBase();
 };
 
@@ -274,7 +284,7 @@ public:
   template<typename... Args>
   FuzzerRunner(Args&&... a) : runner(std::forward<Args>(a)...) { }
 
-  virtual std::vector<FunctionInfo> Functions() {
+  virtual std::vector<FunctionInfo> const& Functions() {
     return runner.Functions();
   }
 
@@ -298,6 +308,17 @@ public:
     return runner.MarshallMemoryImport(m, s);
   }
 
+  virtual std::vector<GlobalInfo> Globals() {
+    return runner.Globals();
+  }
+
+  virtual void SetGlobal(std::string const& arg, JSValue value) {
+    runner.SetGlobal(arg, value);
+  }
+
+  virtual JSValue GetGlobal(std::string const& arg) {
+    return runner.GetGlobal(arg);
+  }
 };
 
 

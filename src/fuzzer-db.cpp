@@ -32,7 +32,9 @@ namespace dfw::db {
     (implementation_id)
     (timestamp)
     (success)
-    (result))
+    (result)
+    (timeout)
+    (signal))
 
   struct Entities::Internal {
     quince_sqlite::database db;
@@ -100,10 +102,10 @@ namespace dfw::db {
     return this->internal->memory_steppings.insert(MemoryStepping { {}, stepping_id, step });
   }
   
-  quince::serial Entities::StoreTestCase(quince::serial memorystepping_id, int implementation_id, int64_t timestamp, bool success, std::string&& result) {
+  quince::serial Entities::StoreTestCase(quince::serial memorystepping_id, int implementation_id, int64_t timestamp, bool success, std::string&& result, bool timeout, int signal) {
     return this->internal->testcases.insert(
       TestCase {
-        {}, memorystepping_id, implementation_id, timestamp, success, std::move(result)
+        {}, memorystepping_id, implementation_id, timestamp, success, std::move(result), timeout, signal
       }
     );
   }

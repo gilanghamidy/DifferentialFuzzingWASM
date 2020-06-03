@@ -1,7 +1,6 @@
 // Copyright 2015 the V8 project authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
 #include "libplatform/libplatform.h"
 #include "v8.h"
 #include "v8-ext.h"
@@ -18,6 +17,7 @@ private:
   v8::Local<v8::Context>& context;
   v8::ext::CompiledWasm compiled_wasm;
   std::vector<dfw::FunctionInfo> functions;
+  std::vector<dfw::GlobalInfo> globals;
 
   dfw::JSValue MarshallValue(v8::Local<v8::Value> const& ref);
   std::vector<v8::Local<v8::Value>> MarshallArgs(std::vector<dfw::JSValue> const& args);
@@ -31,7 +31,9 @@ public:
   bool InitializeExecution();
   std::optional<dfw::JSValue> InvokeFunction(std::string const& name, std::vector<dfw::JSValue> const& args);
   std::vector<dfw::FunctionInfo> const& Functions() const { return functions; }
-
+  std::vector<dfw::GlobalInfo> const& Globals() const { return globals; }
+  void SetGlobal(std::string const& arg, dfw::JSValue value);
+  dfw::JSValue GetGlobal(std::string const& arg);
   ~RunnerV8();
 };
 
@@ -56,6 +58,18 @@ bool RunnerV8::InitializeModule(dfw::FuzzerRunnerCLArgs args) {
         info.parameters.push_back((dfw::WasmType)param);
       
       this->functions.emplace_back(std::move(info));
+    }
+
+    // New Global Import to populate the globals
+    
+    this->compiled_wasm.NewGlobalImport(isolate);
+
+    for(auto& global : this->compiled_wasm.Globals()) {
+      dfw::GlobalInfo info;
+      info.global_name = global.first;
+      info.type = (dfw::WasmType)global.second;
+
+      this->globals.emplace_back(std::move(info));
     }
 
     return true;
@@ -123,6 +137,47 @@ dfw::JSValue RunnerV8::MarshallValue(v8::Local<v8::Value> const& ref) {
     //std::abort();
   }
 
+  return ret;
+}
+
+void RunnerV8::SetGlobal(std::string const& arg, dfw::JSValue val) {
+  v8::ext::WasmGlobalArg global_arg;
+  using dfw::WasmType;
+  switch(val.type) {
+    case WasmType::I32: {
+      global_arg.i32 = val.i32;
+      break;
+    }
+    case WasmType::I64: {
+      global_arg.i64 = val.i64;
+      break;
+    }
+    case WasmType::F32: {
+      global_arg.f32 = val.f32;
+      break;
+    }
+    case WasmType::F64: {
+      global_arg.f64 = val.f64;
+      break;
+    }
+    default: break;
+  }
+  
+  this->compiled_wasm.SetGlobalImport(arg, global_arg);
+}
+
+dfw::JSValue RunnerV8::GetGlobal(std::string const& arg) {
+  auto res = this->compiled_wasm.GetGlobalImport(arg);
+  using E = v8::ext::WasmType;
+  dfw::JSValue ret;
+  ret.type = (dfw::WasmType)res.first;
+  switch(res.first) {
+    case E::I32: ret.i32 = res.second.i32; break;
+    case E::I64: ret.i64 = res.second.i64; break;
+    case E::F32: ret.f32 = res.second.f32; break;
+    case E::F64: ret.f64 = res.second.f64; break;
+    case E::Void: break;
+  }
   return ret;
 }
 

@@ -233,6 +233,58 @@ void dfw::FuzzerRunnerBase::Looper() {
       std::cin >> input; // memory file
       LoadMemory(input.c_str());
       std::cout << "Memory imported." << std::endl;
+    } else if(input == "listglobal") {
+      for(dfw::GlobalInfo const& info : Globals()) {
+        std::cout << info.global_name << ": ";
+        std::cout << WasmTypeToString(info.type);
+        std::cout << std::endl;
+      }
+    } else if (input == "setglobal") { 
+      std::cin >> input;
+      decltype(auto) globals = Globals();
+      auto selected_global = std::find_if(globals.begin(), globals.end(),
+                                        [&] (dfw::GlobalInfo const& info) { 
+                                          return info.global_name == input;
+                                        });
+      if(selected_global == globals.end()) {
+        std::cout << "Unknown global: " << input << std::endl;
+      } else {
+        // Get the remaining string
+        std::getline(std::cin, input);
+
+        std::istringstream arg_str(input);
+        JSValue val;
+        val.type = selected_global->type;
+        try {
+          switch(selected_global->type) {
+            case WasmType::I32: {
+              arg_str >> val.i32;
+              break;
+            }
+            case WasmType::I64: {
+              arg_str >> val.i64;
+              break;
+            }
+            case WasmType::F32: {
+              arg_str >> val.f32;
+              break;
+            }
+            case WasmType::F64: {
+              arg_str >> val.f64;
+              break;
+            }
+            default: break;
+          }
+          std::cout << "Setting global...\n";
+          this->SetGlobal(selected_global->global_name, val);
+          continue;
+        } catch(std::exception const& ex) {
+          std::cout << "Wrong global value expected: " << WasmTypeToString(val.type) << std::endl;
+        }
+      }
+    } else if (input == "getglobal") { 
+      std::cin >> input;
+      PrintJSValue(this->GetGlobal(input));
     } else {
       std::cout << "Unknown command: " << input << std::endl;
     }      
@@ -258,9 +310,8 @@ bool dfw::FuzzerRunnerBase::SingleRun(dfw::FuzzerRunnerCLArgs const& args) {
 
   // Loop function call, cover all possible functions
   std::cout << "Get functions" << std::endl;
-  decltype(auto) functions = Functions();
   DataRange random { *memory };
-  decltype(auto) funcs = Functions();
+  auto funcs = Functions();
   size_t func_count = funcs.size();
   std::cout << "Start Looping\n" << std::endl;
   std::sort(funcs.begin(), funcs.end(), 
@@ -286,6 +337,55 @@ bool dfw::FuzzerRunnerBase::SingleRun(dfw::FuzzerRunnerCLArgs const& args) {
 
     std::cout << std::endl;
   }
+  return true;
+}
+
+bool dfw::FuzzerRunnerBase::InvokeFunction(dfw::FuzzerRunnerCLArgs const& args) {
+  if(!args.function.set) {
+    std::cerr << "Set the function name through -function args\n";
+    return false;
+  }
+
+  std::optional<std::vector<uint8_t>> memory;
+  std::cout << "Load memory" << std::endl;
+  if(args.memory.set) {
+    memory.emplace(LoadMemory(args.memory.value));
+  }
+  std::cout << "Initialize execution" << std::endl;
+  RETURN_IF_FALSE(InitializeExecution());
+
+  // Loop function call, cover all possible functions
+  std::cout << "Get functions" << std::endl;
+  DataRange random { *memory };
+  decltype(auto) funcs = Functions();
+  auto selectedFunc = std::find_if(funcs.begin(), funcs.end(), [&args] (dfw::FunctionInfo const& f) {
+                        return f.function_name == args.function.value;
+                      });
+
+  if(selectedFunc == funcs.end())
+    return false;
+
+  std::cout << "Start Invoking\n" << std::endl;
+  /* Remnants?
+  std::sort(funcs.begin(), funcs.end(), 
+            [] (dfw::FunctionInfo const& a, dfw::FunctionInfo const& b) {
+              return a.function_name > b.function_name;
+            });
+  */
+  std::cout << "Invoke: " << selectedFunc->function_name << "\n";
+  std::cout.flush();
+  std::optional<dfw::JSValue> res = 
+        InvokeFunction(selectedFunc->function_name, 
+                       GenerateArgs(selectedFunc->parameters, random));
+  
+  if(res.has_value()) {
+    std::cout << "=============> success: "; 
+    PrintJSValue(*res);
+  } else {
+    std::cout << "=============> failed\n";
+  }
+
+  std::cout << std::endl;
   return true;
 }
 
@@ -327,6 +427,8 @@ int dfw::FuzzerRunnerBase::Run(int argc, char const* argv[]) {
     Looper();
   } else if(std::strcmp(args.mode, "single") == 0) {
     ERROR_IF_FALSE(SingleRun(args), "Failed executing test case.");
+  } else if(std::strcmp(args.mode, "invoke") == 0) {
+    ERROR_IF_FALSE(InvokeFunction(args), "Failed invoking function.");
   }
   return 0;
 }

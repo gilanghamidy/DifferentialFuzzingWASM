@@ -47,6 +47,8 @@ namespace dfw::db {
     int64_t timestamp;
     bool success;
     std::string result;
+    bool timeout;
+    int signal;
 
     static constexpr std::string_view table_name { "testcases" };
     static constexpr auto primary_key { &TestCase::id };
@@ -69,6 +71,6 @@ namespace dfw::db {
     quince::serial StoreSeedConfig(int64_t seed, int64_t blocksize);
     quince::serial StoreStepping(quince::serial seed_id, int64_t step);
     quince::serial StoreMemoryStepping(quince::serial stepping_id, int64_t step);
-    quince::serial StoreTestCase(quince::serial memorystepping_id, int implementation_id, int64_t timestamp, bool success, std::string&& result);
+    quince::serial StoreTestCase(quince::serial memorystepping_id, int implementation_id, int64_t timestamp, bool success, std::string&& result, bool timeout, int signal);
   };
 }

@@ -10,7 +10,7 @@ execute_process(COMMAND git rev-parse HEAD
 message(INFO "Commit ID : ${FUZZER_COMMIT_ID}")
 
 add_compile_definitions(FUZZER_COMMIT="${FUZZER_COMMIT_ID}")
-
+add_compile_definitions(V8_COMPRESS_POINTERS)
 # runner-spidermonkey executable
 add_executable(runner-spidermonkey ${RUNNER_COMMON_SRC} runner-spidermonkey.cpp)
 add_compile_definitions(DEBUG)
