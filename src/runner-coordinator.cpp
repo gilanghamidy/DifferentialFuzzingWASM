@@ -143,7 +143,7 @@ void InstallSigaction() {
 	}
 }
 
-std::tuple<pid_t, int> SpawnTester(std::string const& path) {
+std::tuple<pid_t, int> SpawnTester(std::string const& path, std::string const& mem_path) {
   pid_t pid;
 
   // Prepare pipe
@@ -162,12 +162,11 @@ std::tuple<pid_t, int> SpawnTester(std::string const& path) {
     dup2(stdnull, STDERR_FILENO); // Copy STDERR to STDOUT
     close(fd[1]); // Close existing file
     close(stdnull);
-
     // Execute the runner
     execl(path.c_str(), path.c_str(),
                         "-mode", "single",
                         "-input", "/dev/shm/randomized-wasm",
-                        "-memory", "/dev/shm/randomized-memory",
+                        "-memory", mem_path.c_str(),
                         (char*)0);
     std::abort(); // Error
   } else { 
@@ -221,6 +220,8 @@ bool GetLineOrEnd(std::stringstream& str, std::string& out) {
   if(out == "ENDCOMPARE") return true;
   else return false;
 }
+
+
 
 void CompareLogs(std::string& v8_log, 
                  std::string& moz_log,
@@ -348,6 +349,12 @@ void CompareLogs(std::string& v8_log,
   }
 }
 
+char const* memories[] = { "memory/zero.mem",
+                           "memory/one.mem", 
+                           "memory/rand1.mem", 
+                           "memory/rand2.mem", 
+                           "memory/rand3.mem" };
+
 void FuzzingLoop(CommandLineArgument& args) {
   CorePatternScope corePattern { args.dumpCore };
 
@@ -421,14 +428,9 @@ void FuzzingLoop(CommandLineArgument& args) {
 
     auto step = entities.StoreStepping(seed, i);
 
-    for(int i = 0; i < 2; i++) {
+    for(int i = 0; i < 5; i++) {
       std::cout << "memstep: " << i;
       // Inner loop increment the memory
-      os << "m" << std::endl;
-      os.flush();
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-
-      
       
       // Start two parallel process of V8 and SpiderMonkey
       std::string v8_args;
@@ -436,10 +438,6 @@ void FuzzingLoop(CommandLineArgument& args) {
         // Build argument
         std::stringstream ss;
         ss << argfolder << "runner-v8";
-        //ss << " -mode single";
-        //ss << " -input /dev/shm/randomized-wasm";
-        //ss << " -memory /dev/shm/randomized-memory";
-        //ss << " 2>&1";
         v8_args = ss.str();
       }
       
@@ -448,20 +446,24 @@ void FuzzingLoop(CommandLineArgument& args) {
         // Build argument
         std::stringstream ss;
         ss << argfolder << "runner-spidermonkey";
-        //ss << " -mode single";
-        //ss << " -input /dev/shm/randomized-wasm";
-        //ss << " -memory /dev/shm/randomized-memory";
-        //ss << " 2>&1";
         spidermonkey_args = ss.str();
+      }
+
+      std::string mem_args;
+      {
+        // Build argument
+        std::stringstream ss;
+        ss << argfolder << memories[i];
+        mem_args = ss.str();
       }
       
       std::cout << " * runner start * ";
       std::cout.flush();
 
       // Worker runner
-      auto runner = [] (std::string args, std::string name) {
+      auto runner = [] (std::string args, std::string mem_args, std::string name) {
         //FILE* process = popen(args.c_str(), "r");
-        auto [pid, pipeno] = SpawnTester(args);
+        auto [pid, pipeno] = SpawnTester(args, mem_args);
         FilenoScope pipeno_scope(pipeno);
 
         //int posix_handle = fileno(process);
@@ -540,14 +542,14 @@ void FuzzingLoop(CommandLineArgument& args) {
       };
 
       // Parallelize
-      auto v8_task = std::async(std::launch::async, runner, v8_args, "v8");
+      auto v8_task = std::async(std::launch::async, runner, v8_args, mem_args, "v8");
       
       auto [v8_success, 
             v8_log, 
             v8_timeout, 
             v8_signal] = v8_task.get();
 
-      auto spidermonkey_task = std::async(std::launch::async, runner, spidermonkey_args, "spidermonkey");
+      auto spidermonkey_task = std::async(std::launch::async, runner, spidermonkey_args, mem_args, "spidermonkey");
 
       auto [spidermonkey_success, 
             spidermonkey_log, 

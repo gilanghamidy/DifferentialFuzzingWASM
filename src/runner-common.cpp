@@ -378,7 +378,7 @@ bool dfw::FuzzerRunnerBase::SingleRun(dfw::FuzzerRunnerCLArgs const& args) {
   }
   
   std::optional<std::vector<uint8_t>> memory;
-  //std::cout << "Load memory" << std::endl;
+  std::cout << "Load memory: " << args.memory.value << std::endl;
   if(args.memory.set) {
     memory.emplace(LoadMemory(args.memory.value));
   }

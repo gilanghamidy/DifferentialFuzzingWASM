@@ -77,6 +77,7 @@ add_executable(runner-coordinator
     runner-coordinator.cpp
     fuzzer-db.cpp
 )
+
 target_include_directories(runner-coordinator
     PUBLIC "${CMAKE_SOURCE_DIR}/third-party/quince/include"
     PUBLIC "${CMAKE_SOURCE_DIR}/third-party/quince-sqlite/include"
@@ -94,4 +95,20 @@ target_link_libraries(runner-coordinator
 target_link_directories(runner-coordinator
     PUBLIC ${CMAKE_BINARY_DIR}/lib
 )
+
+# random-memory-gen.cpp
+add_executable(random-memory-gen
+    random-memory-gen.cpp
+)
+
+add_custom_command(OUTPUT memory/zero.mem
+    COMMAND ${CMAKE_BINARY_DIR}/src/random-memory-gen
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/src/memory
+    DEPENDS random-memory-gen
+    COMMENT "Generating Random Memory"
+    USES_TERMINAL)
+
+add_custom_target(generating-memory DEPENDS memory/zero.mem)
+add_dependencies(runner-coordinator generating-memory)
+
 # target_compile_options(runner-coordinator PUBLIC -E)
