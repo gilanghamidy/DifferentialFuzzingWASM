@@ -8,6 +8,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <chrono>
 
 #include "runner-common.h"
 
@@ -29,11 +30,12 @@ public:
   std::optional<std::vector<uint8_t>> DumpFunction(std::string const& name);
   bool MarshallMemoryImport(uint8_t* source, size_t len);
   bool InitializeExecution();
-  std::optional<dfw::JSValue> InvokeFunction(std::string const& name, std::vector<dfw::JSValue> const& args);
+  std::tuple<std::optional<dfw::JSValue>, uint64_t> InvokeFunction(std::string const& name, std::vector<dfw::JSValue> const& args);
   std::vector<dfw::FunctionInfo> const& Functions() const { return functions; }
   std::vector<dfw::GlobalInfo> const& Globals() const { return globals; }
   void SetGlobal(std::string const& arg, dfw::JSValue value);
   dfw::JSValue GetGlobal(std::string const& arg);
+  std::vector<dfw::MemoryDiff> CompareInternalMemory(std::vector<uint8_t>& buffer);
   ~RunnerV8();
 };
 
@@ -186,51 +188,51 @@ std::vector<v8::Local<v8::Value>> RunnerV8::MarshallArgs(std::vector<dfw::JSValu
   for(auto& arg : args) {
     switch(arg.type) {
       case dfw::WasmType::I32: {
-        std::cout << "i32: " << arg.i32 << " ";
-        dfw::PrintHexRepresentation(arg.i32);
+        //std::cout << "i32: " << arg.i32 << " ";
+        //dfw::PrintHexRepresentation(arg.i32);
         ret.emplace_back(v8::Int32::NewFromUnsigned(this->isolate, arg.i32));
         break;
       }
       case dfw::WasmType::I64: {
-        std::cout << "i64: " << arg.i64 << " ";
-        dfw::PrintHexRepresentation(arg.i64);
+        //std::cout << "i64: " << arg.i64 << " ";
+        //dfw::PrintHexRepresentation(arg.i64);
         ret.emplace_back(v8::BigInt::NewFromUnsigned(this->isolate, arg.i64));
         break;
       }
       case dfw::WasmType::F32: {
         double d = arg.f32; // Implicit conversion first
-        std::cout << "f32: " << arg.f32 << " ";
-        dfw::PrintHexRepresentation(d);
+        //std::cout << "f32: " << arg.f32 << " ";
+        //dfw::PrintHexRepresentation(d);
         ret.emplace_back(v8::Number::New(this->isolate, d));
         break;
       }
       case dfw::WasmType::F64: {
-        std::cout << "f64: " << arg.f64 << " ";
-        dfw::PrintHexRepresentation(arg.f64);
+        //std::cout << "f64: " << arg.f64 << " ";
+        //dfw::PrintHexRepresentation(arg.f64);
         ret.emplace_back(v8::Number::New(this->isolate, arg.f64));
         break;
       }
       default:
         break;
     }
-    std::cout << std::endl;
+    //std::cout << std::endl;
   }
-  std::cout.flush();
+  //std::cout.flush();
   return ret;
 }
 
-std::optional<dfw::JSValue> RunnerV8::InvokeFunction(std::string const& name, std::vector<dfw::JSValue> const& args) {
+std::tuple<std::optional<dfw::JSValue>, uint64_t> RunnerV8::InvokeFunction(std::string const& name, std::vector<dfw::JSValue> const& args) {
   auto& funcMain = this->compiled_wasm.FunctionByName(name);
   
   // Marshall the argument
   std::vector<v8::Local<v8::Value>> args_marshalled = MarshallArgs(args);
-  v8::MaybeLocal<v8::Value> ret = funcMain.Invoke(isolate, args_marshalled);
-  
+  auto [ret, elapsed] = funcMain.Invoke(isolate, args_marshalled);
+
   if(ret.IsEmpty()) {
-    return std::nullopt;
+    return {std::nullopt, elapsed};
   } else {
     auto hasil = MarshallValue(ret.ToLocalChecked());
-    return std::make_optional<dfw::JSValue>(hasil);
+    return {std::make_optional<dfw::JSValue>(hasil), elapsed};
   }
 }
 
@@ -238,6 +240,17 @@ RunnerV8::~RunnerV8() {
 
 }
 
+std::vector<dfw::MemoryDiff> RunnerV8::CompareInternalMemory(std::vector<uint8_t>& buffer) {
+  auto ref = this->compiled_wasm.GetWasmMemory();
+  std::vector<dfw::MemoryDiff> ret;
+  for(uint32_t i = 0; i < std::min(ref.length, buffer.size()); ++i) {
+    if(buffer[i] != ref.buffer.get()[i]) {
+      ret.emplace_back(i, buffer[i], ref.buffer.get()[i]);
+      buffer[i] = ref.buffer.get()[i]; // Update the buffer
+    }
+  }
+  return ret;
+}
 
 int main(int argc, char const* argv[]) {
   int ret = 0;

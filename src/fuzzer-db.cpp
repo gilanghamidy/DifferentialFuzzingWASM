@@ -32,9 +32,40 @@ namespace dfw::db {
     (implementation_id)
     (timestamp)
     (success)
-    (result)
     (timeout)
     (signal))
+
+  QUINCE_MAP_CLASS(FunctionCall,
+    (id)
+    (memorystepping_id)
+    (sequence)
+    (function_no))
+
+  QUINCE_MAP_CLASS(TestCaseCall,
+    (id)
+    (testcase_id)
+    (functioncall_id)
+    (success)
+    (result_value))
+
+  QUINCE_MAP_CLASS(FunctionArgs,
+    (id)
+    (functioncall_id)
+    (args))
+
+  QUINCE_MAP_CLASS(MemoryDiff,
+    (id)
+    (testcasecall_id)
+    (index)
+    (before)
+    (after))
+
+  QUINCE_MAP_CLASS(GlobalDiff,
+    (id)
+    (testcasecall_id)
+    (index)
+    (before)
+    (after))
 
   struct Entities::Internal {
     quince_sqlite::database db;
@@ -43,14 +74,24 @@ namespace dfw::db {
     quince::serial_table<MemoryStepping> memory_steppings;
     quince::table<Implementation> implementations;
     quince::serial_table<TestCase> testcases;
+    quince::serial_table<FunctionCall> function_calls;
+    quince::serial_table<TestCaseCall> testcase_calls;
+    quince::serial_table<MemoryDiff> memory_diffs;
+    quince::serial_table<GlobalDiff> global_diffs;
+    quince::serial_table<FunctionArgs> function_args;
     
     Internal(std::string const& filename, bool initialize_new_db) : 
-        db{ filename }, 
-        seed_suites{ db },
-        steppings{ db }, 
-        memory_steppings{ db },
-        implementations{ db }, 
-        testcases{ db } { 
+        db{filename}, 
+        seed_suites{db},
+        steppings{db}, 
+        memory_steppings{db},
+        implementations{db}, 
+        testcases{db},
+        function_calls{db},
+        testcase_calls{db},
+        memory_diffs{db},
+        global_diffs{db},
+        function_args{db} { 
         
       // Open tables
       seed_suites.open();
@@ -66,6 +107,22 @@ namespace dfw::db {
       testcases.specify_foreign(testcases->memorystepping_id, memory_steppings, memory_steppings->id);
       testcases.specify_foreign(testcases->implementation_id, implementations, implementations->id);
       testcases.open();
+
+      function_calls.specify_foreign(function_calls->memorystepping_id, memory_steppings, memory_steppings->id);
+      function_calls.open();
+
+      testcase_calls.specify_foreign(testcase_calls->testcase_id, testcases, testcases->id);
+      testcase_calls.specify_foreign(testcase_calls->functioncall_id, function_calls, function_calls->id);
+      testcase_calls.open();
+
+      memory_diffs.specify_foreign(memory_diffs->testcasecall_id, testcase_calls, testcase_calls->id);
+      memory_diffs.open();
+
+      global_diffs.specify_foreign(global_diffs->testcasecall_id, testcase_calls, testcase_calls->id);
+      global_diffs.open();
+
+      function_args.specify_foreign(function_args->functioncall_id, function_calls, function_calls->id);
+      function_args.open();
 
       if(initialize_new_db) {
         InitNewDb();
@@ -102,12 +159,31 @@ namespace dfw::db {
     return this->internal->memory_steppings.insert(MemoryStepping { {}, stepping_id, step });
   }
   
-  quince::serial Entities::StoreTestCase(quince::serial memorystepping_id, int implementation_id, int64_t timestamp, bool success, std::string&& result, bool timeout, int signal) {
+  quince::serial Entities::StoreTestCase(quince::serial memorystepping_id, int implementation_id, int64_t timestamp, bool success, bool timeout, int signal) {
     return this->internal->testcases.insert(
       TestCase {
-        {}, memorystepping_id, implementation_id, timestamp, success, std::move(result), timeout, signal
+        {}, memorystepping_id, implementation_id, timestamp, success, timeout, signal
       }
     );
   }
+
+  quince::serial Entities::StoreFunctionCall(FunctionCall obj) {
+    return this->internal->function_calls.insert(obj);
+  }
+
+  quince::serial Entities::StoreTestCaseCall(TestCaseCall obj) {
+    return this->internal->testcase_calls.insert(obj);
+  }
   
+  quince::serial Entities::StoreFunctionArgs(FunctionArgs obj) {
+    return this->internal->function_args.insert(obj);
+  }
+
+  quince::serial Entities::StoreMemoryDiff(MemoryDiff obj) {
+    return this->internal->memory_diffs.insert(obj);
+  }
+
+  quince::serial Entities::StoreGlobalDiff(GlobalDiff obj) {
+    return this->internal->global_diffs.insert(obj);
+  }
 }

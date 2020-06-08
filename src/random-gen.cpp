@@ -52,20 +52,22 @@ size_t GenerateRandomWASM(CommandLineArgument& args,
     output_bin.write((char const*)randomizedData.data(), randomizedData.size());
   }
   
-  std::cout << "Generating WASM...\n";
+  //std::cout << "Generating WASM...\n";
   std::vector<uint8_t> generatedWasm;
 
   std::ofstream output(args.outfile, std::ios::out);
   auto [success, mem_size_ret] = v8::ext::GenerateRandomWasm(isolate, randomizedData, generatedWasm);
 
-  std::cout << "Memory size: " << mem_size_ret << std::endl;
+  //std::cout << "Memory size: " << mem_size_ret << std::endl;
   
   if(!success) {
     std::cerr << "Error generating WASM!\n";
     std::abort();
   }
 
-  std::cout << "Writing WASM...\n";
+  //std::cout << "Writing WASM...\n";
+  std::cout << "w" << std::endl;
+  std::cout.flush();
 
   output.write((char const*)generatedWasm.data(), generatedWasm.size());
   output.flush();
@@ -101,6 +103,9 @@ void GenerateMemory(CommandLineArgument& args,
     mem_output.write((char const*)mem_page_buffer.data(),
                       mem_page_buffer.size() * sizeof(decltype(mem_page_buffer)::value_type));
   }
+
+  std::cout << "m" << std::endl;
+  std::cout.flush();
 }
 
 int main(int argc, char const* argv[]) {

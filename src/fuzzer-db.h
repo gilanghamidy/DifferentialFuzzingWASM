@@ -27,6 +27,7 @@ namespace dfw::db {
     quince::serial id;
     quince::serial stepping_id;
     int64_t step;
+    int64_t arg_generator;
 
     static constexpr std::string_view table_name { "memory_steppings" };
     static constexpr auto primary_key { &MemoryStepping::id };
@@ -46,12 +47,65 @@ namespace dfw::db {
     int implementation_id;
     int64_t timestamp;
     bool success;
-    std::string result;
     bool timeout;
     int signal;
 
     static constexpr std::string_view table_name { "testcases" };
     static constexpr auto primary_key { &TestCase::id };
+  };
+
+  struct FunctionCall {
+    quince::serial id;
+    quince::serial memorystepping_id;
+    int64_t sequence;
+    int64_t function_no;
+
+    static constexpr std::string_view table_name { "function_call" };
+    static constexpr auto primary_key { &FunctionCall::id };
+  };
+
+  struct FunctionArgs {
+    quince::serial id;
+    quince::serial functioncall_id;
+    int64_t args;
+
+    static constexpr std::string_view table_name { "function_args" };
+    static constexpr auto primary_key { &FunctionArgs::id };
+  };
+
+  struct TestCaseCall {
+    quince::serial id;
+    quince::serial testcase_id;
+    quince::serial functioncall_id;
+
+    bool success;
+    int64_t elapsed;
+    boost::optional<int64_t> result_value;
+
+    static constexpr std::string_view table_name { "testcase_call" };
+    static constexpr auto primary_key { &TestCaseCall::id };
+  };
+
+  struct MemoryDiff {
+    quince::serial id;
+    quince::serial testcasecall_id;
+    int64_t index;
+    int64_t before;
+    int64_t after;
+
+    static constexpr std::string_view table_name { "memorydiff_call" };
+    static constexpr auto primary_key { &MemoryDiff::id };
+  };
+
+  struct GlobalDiff {
+    quince::serial id;
+    quince::serial testcasecall_id;
+    int64_t index;
+    int64_t before;
+    int64_t after;
+
+    static constexpr std::string_view table_name { "globaldiff_call" };
+    static constexpr auto primary_key { &GlobalDiff::id };
   };
 
   class Entities {
@@ -71,6 +125,11 @@ namespace dfw::db {
     quince::serial StoreSeedConfig(int64_t seed, int64_t blocksize);
     quince::serial StoreStepping(quince::serial seed_id, int64_t step);
     quince::serial StoreMemoryStepping(quince::serial stepping_id, int64_t step);
-    quince::serial StoreTestCase(quince::serial memorystepping_id, int implementation_id, int64_t timestamp, bool success, std::string&& result, bool timeout, int signal);
+    quince::serial StoreTestCase(quince::serial memorystepping_id, int implementation_id, int64_t timestamp, bool success, bool timeout, int signal);
+    quince::serial StoreFunctionCall(FunctionCall obj);
+    quince::serial StoreTestCaseCall(TestCaseCall obj);
+    quince::serial StoreFunctionArgs(FunctionArgs obj);
+    quince::serial StoreMemoryDiff(MemoryDiff obj);
+    quince::serial StoreGlobalDiff(GlobalDiff obj);
   };
 }

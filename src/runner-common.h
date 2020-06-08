@@ -16,6 +16,9 @@
 #include <sstream>
 #include <cmath>
 #include <limits>
+#include <set>
+
+#define COMMON_FILE_DESCRIPTOR 3
 
 namespace dfw {
 std::vector<uint8_t> OpenInput(char const *fileName);
@@ -181,6 +184,12 @@ struct JSValue {
     float    f32;
     double   f64;
   };
+
+  bool operator==(JSValue const& that) const;
+
+  bool operator!=(JSValue const& that) const {
+    return !(*this == that);
+  }
 };
 
 struct DataRange {
@@ -250,7 +259,14 @@ inline float DataRange::get<float>() {
     return val;
 }
 
+struct MemoryDiff {
+  uint32_t index;
+  uint8_t old_byte;
+  uint8_t new_byte;
 
+  MemoryDiff(uint32_t index, uint8_t old_byte, uint8_t new_byte) :
+    index(index), old_byte(old_byte), new_byte(new_byte) { }
+};
 
 
 
@@ -267,10 +283,11 @@ public:
 
   virtual std::vector<FunctionInfo> const& Functions() = 0;
   virtual std::optional<std::vector<uint8_t>> DumpFunction(std::string const&) = 0;
-  virtual std::optional<dfw::JSValue> InvokeFunction(std::string const&, std::vector<JSValue> const&) = 0;
+  virtual std::tuple<std::optional<dfw::JSValue>, uint64_t> InvokeFunction(std::string const&, std::vector<JSValue> const&) = 0;
   virtual bool InitializeExecution() = 0;
   virtual bool InitializeModule(dfw::FuzzerRunnerCLArgs const&) = 0;
   virtual bool MarshallMemoryImport(uint8_t*, size_t) = 0;
+  virtual std::vector<MemoryDiff> CompareInternalMemory(std::vector<uint8_t>& buffer) = 0;
   virtual std::vector<GlobalInfo> Globals() = 0;
   virtual void SetGlobal(std::string const& arg, JSValue value) = 0;
   virtual JSValue GetGlobal(std::string const& arg) = 0;
@@ -292,7 +309,7 @@ public:
     return runner.DumpFunction(f);
   }
 
-  virtual std::optional<dfw::JSValue> InvokeFunction(std::string const& f, std::vector<JSValue> const& args) {
+  virtual std::tuple<std::optional<dfw::JSValue>, uint64_t> InvokeFunction(std::string const& f, std::vector<JSValue> const& args) {
     return runner.InvokeFunction(f, args);
   }
 
@@ -319,6 +336,10 @@ public:
   virtual JSValue GetGlobal(std::string const& arg) {
     return runner.GetGlobal(arg);
   }
+
+  virtual std::vector<MemoryDiff> CompareInternalMemory(std::vector<uint8_t>& buffer) {
+    return runner.CompareInternalMemory(buffer);
+  }
 };
 
 
@@ -328,6 +349,52 @@ void PrintHexRepresentation(T v) {
   StorageSelectorT<T>* ptr = reinterpret_cast<StorageSelectorT<T>*>(&v);
   std::cout << "(0x" << std::hex << *ptr << ")";
   std::cout << std::dec;
+}
+
+template<typename T>
+std::string StringHexRepresentation(T v) {
+  std::stringstream ss;
+  StorageSelectorT<T> temp;
+  std::memset(&temp, 0, sizeof(temp));
+  std::memcpy(&temp, &v, sizeof(v));
+  ss << "0x" << std::hex << temp;
+  return ss.str();
+}
+
+inline std::string StringHexRepresentation(JSValue v) {
+  switch (v.type)
+  {
+  case WasmType::I32: return StringHexRepresentation(v.i32);
+  case WasmType::I64: return StringHexRepresentation(v.i64);
+  case WasmType::F32: return StringHexRepresentation(v.f32);
+  case WasmType::F64: return StringHexRepresentation(v.f64);
+  default:
+    return "";
+  }
+}
+
+template<typename T>
+int64_t BinRepresentation(T v) {
+  StorageSelectorT<T> temp;
+  std::memset(&temp, 0, sizeof(temp));
+  std::memcpy(&temp, &v, sizeof(v));
+  return temp;
+}
+
+inline int64_t BinRepresentation(JSValue v) {
+  switch (v.type)
+  {
+  case WasmType::I32: return BinRepresentation(v.i32);
+  case WasmType::I64: return BinRepresentation(v.i64);
+  case WasmType::F32: return BinRepresentation(v.f32);
+  case WasmType::F64: return BinRepresentation(v.f64);
+  default:
+    return 0;
+  }
+}
+
+inline std::string StringBinRepresentation(JSValue v) {
+  return std::to_string(BinRepresentation(v));
 }
 
 template<typename T, typename... TArgs>
@@ -344,6 +411,23 @@ std::string strjoin(TArgs... args) {
   return ret;
 }
 
+inline bool JSValue::operator==(JSValue const& that) const {
+  if(this->type != that.type) {
+    std::cerr << "Diff type\n";
+    return false;
+  }
+    
+  
+  switch(this->type) {
+    case WasmType::I32: return this->i32 == that.i32;
+    case WasmType::I64: return this->i64 == that.i64;
+    case WasmType::F32: return (std::isnan(this->f32) && std::isnan(that.f32)) || this->f32 == that.f32;
+    case WasmType::F64: return (std::isnan(this->f64) && std::isnan(that.f64)) || this->f64 == that.f64;
+    default:            return true;
+  }
+
+  return true;
+}
 
 } // namespace dfw
 

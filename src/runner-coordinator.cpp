@@ -15,6 +15,15 @@
 #include <mutex>
 #include <filesystem>
 #include <sys/wait.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <cassert>
+
+#include <rapidjson/document.h>
+#include <rapidjson/writer.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/ostreamwrapper.h>
 
 char const* CorePatternToDump = "core.%e.%s.%p.%t.dmp";
 char const* CorePatternFile = "/proc/sys/kernel/core_pattern";
@@ -105,6 +114,18 @@ public:
   }
 };
 
+class ProcessScope {
+  int pid;
+public:
+  ProcessScope(int pid) : pid(pid) { }
+  ~ProcessScope() {
+    kill(pid, SIGKILL);
+    waitpid(pid, NULL, 0);
+  }
+};
+
+
+
 
 void InstallSigaction() {
   struct sigaction act;
@@ -135,9 +156,12 @@ std::tuple<pid_t, int> SpawnTester(std::string const& path) {
   if(pid == 0) {
     // Child process
     close(fd[0]); // Close read
-    dup2(fd[1], STDOUT_FILENO); // Copy to STDOUT
-    dup2(fd[1], STDERR_FILENO); // Copy STDERR to STDOUT
+    dup2(fd[1], COMMON_FILE_DESCRIPTOR); // Copy to STDOUT
+    int stdnull = open("/dev/null", O_RDONLY);
+    dup2(stdnull, STDOUT_FILENO);
+    dup2(stdnull, STDERR_FILENO); // Copy STDERR to STDOUT
     close(fd[1]); // Close existing file
+    close(stdnull);
 
     // Execute the runner
     execl(path.c_str(), path.c_str(),
@@ -152,14 +176,183 @@ std::tuple<pid_t, int> SpawnTester(std::string const& path) {
   }
 }
 
+std::tuple<pid_t, int, int> SpawnGenerator(
+          std::string const& argfolder, 
+          uint64_t seed, 
+          uint64_t block_size) {
+  pid_t pid;
+
+  // Prepare pipe
+  int fd[2];
+  pipe(fd);
+
+  // Split
+  pid = fork();
+
+  if(pid == 0) {
+    // Child process
+    
+    dup2(fd[0], STDIN_FILENO); // Copy to STDIN
+    dup2(fd[1], STDOUT_FILENO); // Copy to STDOUT
+    //dup2(fd[1], STDERR_FILENO); // Copy STDERR to STDOUT
+    close(fd[1]); // Close existing file
+    close(fd[0]); // Close existing file
+
+     // Build argument
+    std::string seed_str = std::to_string(seed),
+                block_size_str = std::to_string(block_size),
+                path = argfolder + "random-gen";
+
+    // Execute the runner
+    execl(path.c_str(), path.c_str(),
+                        "-block-size", block_size_str.c_str(),
+                        "-seed", seed_str.c_str(),
+                        "-output", "/dev/shm/randomized-wasm",
+                        "-memory", "/dev/shm/randomized-memory",
+                        (char*)0);
+    std::abort(); // Error
+  } else { 
+    return { pid, fd[1], fd[0] }; // Return process id and pipe fileno
+  }
+}
+
+bool GetLineOrEnd(std::stringstream& str, std::string& out) {
+  std::getline(str, out);
+  if(out == "ENDCOMPARE") return true;
+  else return false;
+}
+
+void CompareLogs(std::string& v8_log, 
+                 std::string& moz_log,
+                 dfw::db::Entities& entities,
+                 quince::serial memstep,
+                 quince::serial v8_id,
+                 quince::serial moz_id) {
+
+  using namespace rapidjson;
+
+  // Fix the crash cases
+  if(v8_log.length() > 0 && *v8_log.rbegin() != ']') v8_log += ']';  
+  if(moz_log.length() > 0 && *moz_log.rbegin() != ']') moz_log += ']';
+  
+  Document v8_log_doc;
+  v8_log_doc.Parse(v8_log.c_str());
+
+  Document moz_log_doc;
+  moz_log_doc.Parse(moz_log.c_str());
+
+  // Starts with an array
+  auto v8_log_iter = v8_log_doc.Begin();
+  auto moz_log_iter = moz_log_doc.Begin();
+
+  int64_t sequence = 0;
+
+  // When everything is still the same
+  while(v8_log_iter != v8_log_doc.End() && moz_log_iter != moz_log_doc.End()) {
+    // Get the object
+    decltype(auto) v8_exec = v8_log_iter->GetObject();
+    decltype(auto) moz_exec = moz_log_iter->GetObject();
+
+    // Continue
+    ++v8_log_iter;
+    ++moz_log_iter;
+
+    std::string func_name = v8_exec["FunctionName"].GetString();
+
+    assert(std::strcmp(v8_exec["FunctionName"].GetString(), 
+                       moz_exec["FunctionName"].GetString()) == 0);
+
+    auto func_num = std::strtol(&func_name[4], nullptr, 10);
+
+    auto v8_elapsed = std::strtol(v8_exec["Elapsed"].GetString(), nullptr, 10); 
+    auto moz_elapsed = std::strtol(moz_exec["Elapsed"].GetString(), nullptr, 10);
+
+    auto v8_success = v8_exec["Success"].GetBool();
+    auto moz_success = moz_exec["Success"].GetBool();
+
+    auto functioncall_id = entities.StoreFunctionCall(dfw::db::FunctionCall {
+                             {}, memstep, sequence, func_num
+                           });
+    
+    // Store the args
+    for(auto& arg : v8_exec["Args"].GetArray()) {
+      auto argval = std::strtol(arg.GetString(), nullptr, 10);
+      entities.StoreFunctionArgs(dfw::db::FunctionArgs { {}, functioncall_id, argval });
+    }
+
+    boost::optional<int64_t> v8_result, moz_result;
+    if(v8_success && v8_exec.HasMember("Result")) { 
+      v8_result = std::strtol(v8_exec["Result"].GetString(), nullptr, 10); 
+    }
+
+    if(moz_success && moz_exec.HasMember("Result")) { 
+      moz_result = std::strtol(moz_exec["Result"].GetString(), nullptr, 10); 
+    }
+
+    // Store call each test case
+    auto v8_case = entities.StoreTestCaseCall(dfw::db::TestCaseCall { {}, v8_id, functioncall_id, 
+                                              v8_success, v8_elapsed, v8_result });
+    
+    auto moz_case = entities.StoreTestCaseCall(dfw::db::TestCaseCall { {}, moz_id, functioncall_id, 
+                                               moz_success, moz_elapsed, moz_result });
+
+    // Check if there is memory diff
+    if(v8_exec.HasMember("MemoryDiff")) {
+      for(auto& member : v8_exec["MemoryDiff"].GetObject()) {
+        auto index = std::strtol(member.name.GetString(), nullptr, 10);
+        auto old_val = member.value[0].GetInt64();
+        auto new_val = member.value[1].GetInt64();
+
+        entities.StoreMemoryDiff(dfw::db::MemoryDiff {
+          {}, v8_case, index, old_val, new_val
+        });
+      }
+    }
+    if(moz_exec.HasMember("MemoryDiff")) {
+      for(auto& member : moz_exec["MemoryDiff"].GetObject()) {
+        auto index = std::strtol(member.name.GetString(), nullptr, 10);
+        auto old_val = member.value[0].GetInt64();
+        auto new_val = member.value[1].GetInt64();
+
+        entities.StoreMemoryDiff(dfw::db::MemoryDiff {
+          {}, moz_case, index, old_val, new_val
+        });
+      }
+    }
+
+    // Check if there is a global diff
+    if(v8_exec.HasMember("GlobalDiff")) {
+      for(auto& member : v8_exec["GlobalDiff"].GetObject()) {
+        auto index = std::strtol(member.name.GetString(), nullptr, 10);
+        auto old_val = member.value[0].GetInt64();
+        auto new_val = member.value[1].GetInt64();
+        
+        entities.StoreGlobalDiff(dfw::db::GlobalDiff {
+          {}, v8_case, index, old_val, new_val
+        });
+      }
+    }
+    if(moz_exec.HasMember("GlobalDiff")) {
+      for(auto& member : moz_exec["GlobalDiff"].GetObject()) {
+        auto index = std::strtol(member.name.GetString(), nullptr, 10);
+        auto old_val = member.value[0].GetInt64();
+        auto new_val = member.value[1].GetInt64();
+
+        entities.StoreGlobalDiff(dfw::db::GlobalDiff {
+          {}, moz_case, index, old_val, new_val
+        });
+      }
+    }
+
+    sequence++;
+  }
+}
+
 void FuzzingLoop(CommandLineArgument& args) {
   CorePatternScope corePattern { args.dumpCore };
 
-  
-
   if(!std::filesystem::exists((char const*)args.outputFolder))
     std::filesystem::create_directory((char const*)args.outputFolder);
-
 
   dfw::db::Entities entities { dfw::strjoin(args.outputFolder, "/fuzzer.db") };
   // Enable creating a core dump
@@ -181,6 +374,8 @@ void FuzzingLoop(CommandLineArgument& args) {
   if(slash != argfolder.rend()) {
     argfolder = std::string { argfolder.begin(), slash.base() };
   }
+
+  
   std::cout << "Argfolder: " << argfolder << std::endl;
   {
     // Build argument
@@ -205,8 +400,8 @@ void FuzzingLoop(CommandLineArgument& args) {
   }
 
   int posix_handle = fileno(wasm_gen_p);
-  __gnu_cxx::stdio_filebuf<char> filebuf(posix_handle, std::ios::out);
-  std::ostream os(&filebuf);
+  __gnu_cxx::stdio_filebuf<char> filebuf_out(posix_handle, std::ios::out);
+  std::ostream os(&filebuf_out);
 
   InstallSigaction();
 
@@ -226,13 +421,14 @@ void FuzzingLoop(CommandLineArgument& args) {
 
     auto step = entities.StoreStepping(seed, i);
 
-    for(int i = 0; i < 10; i++) {
+    for(int i = 0; i < 2; i++) {
       std::cout << "memstep: " << i;
       // Inner loop increment the memory
       os << "m" << std::endl;
-      std::this_thread::sleep_for(std::chrono::seconds(1));
       os.flush();
-      auto memstep = entities.StoreMemoryStepping(step, i);
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+
+      
       
       // Start two parallel process of V8 and SpiderMonkey
       std::string v8_args;
@@ -336,7 +532,7 @@ void FuzzingLoop(CommandLineArgument& args) {
             signal = WTERMSIG(status);
           }
 
-          if(log.rfind("ERROR", 0) == 0) result = 1; // This is error
+          //if(log.rfind("ERROR", 0) == 0) result = 1; // This is error
           
           return std::make_tuple(result == 0, std::move(log), timeout, signal);
         }
@@ -345,12 +541,13 @@ void FuzzingLoop(CommandLineArgument& args) {
 
       // Parallelize
       auto v8_task = std::async(std::launch::async, runner, v8_args, "v8");
-      auto spidermonkey_task = std::async(std::launch::async, runner, spidermonkey_args, "spidermonkey");
-
+      
       auto [v8_success, 
             v8_log, 
             v8_timeout, 
             v8_signal] = v8_task.get();
+
+      auto spidermonkey_task = std::async(std::launch::async, runner, spidermonkey_args, "spidermonkey");
 
       auto [spidermonkey_success, 
             spidermonkey_log, 
@@ -365,12 +562,15 @@ void FuzzingLoop(CommandLineArgument& args) {
         std::cout << " spidermonkey failed";
       }
 
-      entities.StoreTestCase(memstep, (int)dfw::db::Entities::ID::V8, 
-                             std::time(NULL), v8_success, std::move(v8_log), v8_timeout, v8_signal);
+      auto memstep = entities.StoreMemoryStepping(step, i);
+      
+      auto v8_id = entities.StoreTestCase(memstep, (int)dfw::db::Entities::ID::V8, 
+                                          std::time(NULL), v8_success, v8_timeout, v8_signal);
 
-      entities.StoreTestCase(memstep, (int)dfw::db::Entities::ID::SpiderMonkey, 
-                             std::time(NULL), spidermonkey_success, 
-                             std::move(spidermonkey_log), spidermonkey_timeout, spidermonkey_signal);
+      auto sm_id = entities.StoreTestCase(memstep, (int)dfw::db::Entities::ID::SpiderMonkey, 
+                                          std::time(NULL), spidermonkey_success, spidermonkey_timeout, spidermonkey_signal);
+      
+      CompareLogs(v8_log, spidermonkey_log, entities, memstep, v8_id, sm_id);
 
       std::cout << std::endl;
 
@@ -384,6 +584,8 @@ void FuzzingLoop(CommandLineArgument& args) {
 END:
   return;
 }
+
+
 
 void Reproduce(CommandLineArgument& args) {
 

@@ -5,6 +5,15 @@
 #include <fstream>
 #include <iostream>
 #include <ext/stdio_filebuf.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <chrono>
+#include <map>
+
+#include <rapidjson/document.h>
+#include <rapidjson/writer.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/ostreamwrapper.h>
 
 #define ERROR_IF_FALSE(x, msg) if (!(x)) { printf((msg)); printf("\n"); return -1; }
 #define RETURN_IF_FALSE(x) if (!(x)) return false
@@ -43,6 +52,34 @@ void dfw::PrintJSValue(JSValue const& v) {
       break;
     }
   }
+}
+
+std::string StringJSValue(dfw::JSValue const& v) {
+  using namespace dfw;
+  std::stringstream ss;
+  switch(v.type) {
+    case WasmType::I32: {
+      ss << "i32: " << v.i32;
+      break;
+    }
+    case WasmType::I64: {
+      ss << "i64: " << v.i64;
+      break;
+    }
+    case WasmType::F32: {
+      ss << "f32: " << v.f32;
+      break;
+    }
+    case WasmType::F64: {
+      ss << "f64: " << v.f64;
+      break;
+    }
+    default: {
+      ss << "void";
+      break;
+    }
+  }
+  return ss.str();
 }
 
 char const* dfw::WasmTypeToString(WasmType t) {
@@ -207,7 +244,7 @@ void dfw::FuzzerRunnerBase::Looper() {
         }
         
         std::cout << "Invoke function: " << input << std::endl;
-        std::optional<dfw::JSValue> res = InvokeFunction(selected_func->function_name, args);
+        auto [res, elapsed] = InvokeFunction(selected_func->function_name, args);
         
         if(res != std::nullopt) {
           PrintJSValue(res.value());
@@ -299,44 +336,157 @@ std::vector<uint8_t> dfw::FuzzerRunnerBase::LoadMemory(char const* memfile) {
   return mem_input;
 }
 
+dfw::JSValue GetRandomValue(dfw::WasmType type, dfw::DataRange& random) {
+  using namespace dfw;
+  JSValue ret;
+  ret.type = type;
+  switch(type) {
+    case WasmType::I32: {
+      ret.i32 = random.get<int32_t>();
+      break;
+    }
+    case WasmType::I64: {
+      ret.i64 = random.get<int64_t>();
+      break;
+    }
+    case WasmType::F32: {
+      ret.f32 = random.get<float>();
+      break;
+    }
+    case WasmType::F64: {
+      ret.f64 = random.get<double>();
+      break;
+    }
+    default: {
+      break;
+    }
+  }
+  return ret;
+}
+
 bool dfw::FuzzerRunnerBase::SingleRun(dfw::FuzzerRunnerCLArgs const& args) {
+  using namespace rapidjson;
+
+  auto flag = fcntl(COMMON_FILE_DESCRIPTOR, F_GETFD);
+
+  std::ostream* output = &std::cout;
+  __gnu_cxx::stdio_filebuf<char> filebuf_out(COMMON_FILE_DESCRIPTOR, std::ios::out);
+  std::ostream os(&filebuf_out);
+
+  if(flag >= 0) {
+    output = &os;
+  }
+  
   std::optional<std::vector<uint8_t>> memory;
-  std::cout << "Load memory" << std::endl;
+  //std::cout << "Load memory" << std::endl;
   if(args.memory.set) {
     memory.emplace(LoadMemory(args.memory.value));
   }
-  std::cout << "Initialize execution" << std::endl;
+  //std::cout << "Initialize execution" << std::endl;
   RETURN_IF_FALSE(InitializeExecution());
 
   // Loop function call, cover all possible functions
-  std::cout << "Get functions" << std::endl;
+  //std::cout << "Get functions" << std::endl;
   DataRange random { *memory };
   auto funcs = Functions();
   size_t func_count = funcs.size();
-  std::cout << "Start Looping\n" << std::endl;
+  //std::cout << "Start Looping\n" << std::endl;
   std::sort(funcs.begin(), funcs.end(), 
             [] (dfw::FunctionInfo const& a, dfw::FunctionInfo const& b) {
               return a.function_name > b.function_name;
             });
-            
+
+  *output << "[";
+
+  // Initialize Global Values
+  auto globals = Globals();
+  std::map<std::string, JSValue> global_state;
+  for(auto& global : globals) {
+    auto init_val = GetRandomValue(global.type, random);
+    SetGlobal(global.global_name, init_val);
+    global_state.emplace(global.global_name, init_val);
+  }
+
   for(int i = 0; i < args.count.value; ++i) {
+    if(i != 0) *output << ",";
+
+    // Prepare JSON Logging
+    Document report;
+    auto& reportArr = report.SetObject();
+    Document::AllocatorType& allocator = report.GetAllocator();
+
+    // Select the function
     size_t select_func = random.get<uint16_t>() % func_count;
+    auto& the_func = funcs[select_func];
+    auto args = GenerateArgs(the_func.parameters, random);
+
+    // Log the execution
+    reportArr.AddMember(Value("FunctionName"),
+                        Value(the_func.function_name.c_str(), allocator).Move(),
+                        allocator);
+    Value argArray(kArrayType);
+    for(auto& arg : args) {
+      argArray.PushBack(Value(StringBinRepresentation(arg).c_str(), allocator).Move(), allocator);
+    }
+    reportArr.AddMember(Value("Args"), argArray.Move(), allocator);
+
+    // Invoke
+    auto [res, elapsed] = InvokeFunction(the_func.function_name, args);
     
-    std::cout << "Invoke: " << funcs[select_func].function_name << "\n";
-    std::cout.flush();
-    std::optional<dfw::JSValue> res = 
-        InvokeFunction(funcs[select_func].function_name, 
-                       GenerateArgs(funcs[select_func].parameters, random));
     
+    reportArr.AddMember(Value("Elapsed"),
+                        Value(std::to_string(elapsed).c_str(), allocator).Move(), 
+                        allocator);
+
     if(res.has_value()) {
-      std::cout << "=============> success: "; 
-      PrintJSValue(*res);
+      reportArr.AddMember(Value("Success"), Value(true), allocator);
+      if(res->type != WasmType::Void)
+        reportArr.AddMember(Value("Result"),
+                            Value(StringBinRepresentation(*res).c_str(), allocator).Move(), 
+                            allocator);
     } else {
-      std::cout << "=============> failed\n";
+      reportArr.AddMember(Value("Success"), Value(false), allocator);
     }
 
-    std::cout << std::endl;
+    if(memory.has_value()) {
+      auto comparison = this->CompareInternalMemory(*memory);
+      if(!comparison.empty()) {
+        Value memDiff(kObjectType);
+        for(auto& diff : comparison) {
+          Value thisDiff(kArrayType);
+          thisDiff.PushBack(Value(diff.old_byte), allocator);
+          thisDiff.PushBack(Value(diff.new_byte), allocator);
+          memDiff.AddMember(Value(std::to_string(diff.index).c_str(), allocator).Move(), thisDiff.Move(), allocator);
+        }
+        reportArr.AddMember(Value("MemoryDiff"), memDiff.Move(), allocator);
+      }
+    }
+    
+    // Do comparison globals
+    Value globalDiff(kObjectType);
+    int global_diff_ctr = 0;
+    for(auto& global : global_state) {
+      auto new_state = GetGlobal(global.first);
+      if(new_state != global.second) {
+        Value thisDiff(kArrayType);
+        thisDiff.PushBack(Value(StringBinRepresentation(global.second).c_str(), allocator).Move(), allocator);
+        thisDiff.PushBack(Value(StringBinRepresentation(new_state).c_str(), allocator).Move(), allocator);
+        globalDiff.AddMember(Value(&global.first[6], allocator).Move(), thisDiff.Move(), allocator);
+        global_diff_ctr++;
+          
+        global.second = new_state;
+      }
+    }
+    if(global_diff_ctr != 0) {
+      reportArr.AddMember(Value("GlobalDiff"), globalDiff.Move(), allocator);
+    }
+
+    OStreamWrapper osw(*output);
+    Writer<OStreamWrapper> writer(osw);
+    report.Accept(writer);
   }
+  *output << "]";
+
   return true;
 }
 
@@ -372,17 +522,18 @@ bool dfw::FuzzerRunnerBase::InvokeFunction(dfw::FuzzerRunnerCLArgs const& args) 
               return a.function_name > b.function_name;
             });
   */
-  std::cout << "Invoke: " << selectedFunc->function_name << "\n";
+  std::cout << "[INVOKE] " 
+            << selectedFunc->function_name << " " 
+            << selectedFunc->parameters.size() << std::endl;
   std::cout.flush();
-  std::optional<dfw::JSValue> res = 
-        InvokeFunction(selectedFunc->function_name, 
-                       GenerateArgs(selectedFunc->parameters, random));
+  auto [res, elapsed] = InvokeFunction(selectedFunc->function_name, 
+                                       GenerateArgs(selectedFunc->parameters, random));
   
   if(res.has_value()) {
-    std::cout << "=============> success: "; 
+    std::cout << "[INVOKE DONE] success: "; 
     PrintJSValue(*res);
   } else {
-    std::cout << "=============> failed\n";
+    std::cout << "[INVOKE DONE] failed\n";
   }
 
   std::cout << std::endl;
