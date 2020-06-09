@@ -27,7 +27,7 @@ namespace dfw::db {
     quince::serial id;
     quince::serial stepping_id;
     int64_t step;
-    int64_t arg_generator;
+    int64_t arg_seed;
 
     static constexpr std::string_view table_name { "memory_steppings" };
     static constexpr auto primary_key { &MemoryStepping::id };
@@ -124,7 +124,7 @@ namespace dfw::db {
 
     quince::serial StoreSeedConfig(int64_t seed, int64_t blocksize);
     quince::serial StoreStepping(quince::serial seed_id, int64_t step);
-    quince::serial StoreMemoryStepping(quince::serial stepping_id, int64_t step);
+    quince::serial StoreMemoryStepping(quince::serial stepping_id, int64_t step, int64_t arg_seed);
     quince::serial StoreTestCase(quince::serial memorystepping_id, int implementation_id, int64_t timestamp, bool success, bool timeout, int signal);
     quince::serial StoreFunctionCall(FunctionCall obj);
     quince::serial StoreTestCaseCall(TestCaseCall obj);

@@ -336,7 +336,7 @@ std::vector<uint8_t> dfw::FuzzerRunnerBase::LoadMemory(char const* memfile) {
   return mem_input;
 }
 
-dfw::JSValue GetRandomValue(dfw::WasmType type, dfw::DataRange& random) {
+dfw::JSValue GetRandomValue(dfw::WasmType type, dfw::RandomGenerator& random) {
   using namespace dfw;
   JSValue ret;
   ret.type = type;
@@ -387,7 +387,7 @@ bool dfw::FuzzerRunnerBase::SingleRun(dfw::FuzzerRunnerCLArgs const& args) {
 
   // Loop function call, cover all possible functions
   //std::cout << "Get functions" << std::endl;
-  DataRange random { *memory };
+  RandomGenerator random { args.arg_seed.value };
   auto funcs = Functions();
   size_t func_count = funcs.size();
   //std::cout << "Start Looping\n" << std::endl;
@@ -506,7 +506,7 @@ bool dfw::FuzzerRunnerBase::InvokeFunction(dfw::FuzzerRunnerCLArgs const& args) 
 
   // Loop function call, cover all possible functions
   std::cout << "Get functions" << std::endl;
-  DataRange random { *memory };
+  RandomGenerator random { args.arg_seed.value };
   decltype(auto) funcs = Functions();
   auto selectedFunc = std::find_if(funcs.begin(), funcs.end(), [&args] (dfw::FunctionInfo const& f) {
                         return f.function_name == args.function.value;
@@ -540,7 +540,7 @@ bool dfw::FuzzerRunnerBase::InvokeFunction(dfw::FuzzerRunnerCLArgs const& args) 
   return true;
 }
 
-std::vector<dfw::JSValue> dfw::FuzzerRunnerBase::GenerateArgs(std::vector<WasmType> const& param_types, DataRange& random) {
+std::vector<dfw::JSValue> dfw::FuzzerRunnerBase::GenerateArgs(std::vector<WasmType> const& param_types, RandomGenerator& random) {
   std::vector<dfw::JSValue> args;
   JSValue arg;
   for(auto param_type : param_types) {

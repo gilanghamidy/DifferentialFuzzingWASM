@@ -17,6 +17,7 @@
 #include <cmath>
 #include <limits>
 #include <set>
+#include <random>
 
 #define COMMON_FILE_DESCRIPTOR 3
 
@@ -39,6 +40,11 @@ template <> inline bool ConsumeArg(char const *arg, char const *&target) {
 }
 
 template <> inline bool ConsumeArg(char const *arg, uint64_t &target) {
+  target = std::stoull(std::string{arg});
+  return true;
+}
+
+template <> inline bool ConsumeArg(char const *arg, int64_t &target) {
   target = std::stoll(std::string{arg});
   return true;
 }
@@ -145,13 +151,15 @@ struct FuzzerRunnerCLArgs {
   dfw::CommandLineArg<char const*> memory { "-memory", false };
   dfw::CommandLineArg<char const*> function { "-function", false };
   dfw::CommandLineArg<int> count { "-invoke-count", false, 50 };
+  dfw::CommandLineArg<int64_t> arg_seed { "-arg-seed", false, 0 };
   char const* exec_path;
   FuzzerRunnerCLArgs(int argc, char const* argv[]) : exec_path(argv[0]) {
     dfw::CommandLineConsumer { argc, argv, 
                                std::ref(input),
                                std::ref(mode),
                                std::ref(memory),
-                               std::ref(function) };
+                               std::ref(function),
+                               std::ref(arg_seed) };
   }
 };
 
@@ -216,6 +224,21 @@ struct DataRange {
   }
 };
 
+struct RandomGenerator {
+  std::mt19937_64 randomizer;
+
+  RandomGenerator(int64_t seed) : 
+    randomizer(seed) { }
+  
+  template<typename T>
+  T get() {
+    auto random = randomizer();
+    T ret {};
+    std::memcpy(&ret, &random, sizeof(T));
+    return ret;
+  }
+};
+
 template<typename T, size_t typeSize = sizeof(T)>
 struct StorageSelector;
 
@@ -276,7 +299,7 @@ class FuzzerRunnerBase {
 public:
   void Looper();
   std::vector<uint8_t> LoadMemory(char const* memfile);
-  std::vector<dfw::JSValue> GenerateArgs(std::vector<WasmType> const& param_types, DataRange& random);
+  std::vector<dfw::JSValue> GenerateArgs(std::vector<WasmType> const& param_types, RandomGenerator& random);
   bool SingleRun(dfw::FuzzerRunnerCLArgs const& args);
   bool InvokeFunction(dfw::FuzzerRunnerCLArgs const& args);
   int Run(int argc, char const* argv[]);

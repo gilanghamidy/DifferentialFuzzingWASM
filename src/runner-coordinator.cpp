@@ -143,7 +143,9 @@ void InstallSigaction() {
 	}
 }
 
-std::tuple<pid_t, int> SpawnTester(std::string const& path, std::string const& mem_path) {
+std::tuple<pid_t, int> SpawnTester(std::string const& path, 
+                                   std::string const& mem_path, 
+                                   std::string const& arg_seed) {
   pid_t pid;
 
   // Prepare pipe
@@ -167,6 +169,7 @@ std::tuple<pid_t, int> SpawnTester(std::string const& path, std::string const& m
                         "-mode", "single",
                         "-input", "/dev/shm/randomized-wasm",
                         "-memory", mem_path.c_str(),
+                        "-arg-seed", arg_seed.c_str(),
                         (char*)0);
     std::abort(); // Error
   } else { 
@@ -365,13 +368,15 @@ void FuzzingLoop(CommandLineArgument& args) {
   // Enable creating a core dump
 
   // Generate a new random seed
-  uint64_t this_seed;
+  int64_t this_seed;
+  std::mt19937 re(std::time(NULL));
+  this_seed = re();
+
   if(args.reproduceSeed.set) {
     this_seed = args.reproduceSeed;
-  } else {
-    std::mt19937 re(std::time(NULL));
-    this_seed = re();
   }
+  // Reseed
+  re.seed(this_seed);
 
   std::string wasm_gen_cmd;
   std::string argfolder { args.programCommand };
@@ -461,9 +466,9 @@ void FuzzingLoop(CommandLineArgument& args) {
       std::cout.flush();
 
       // Worker runner
-      auto runner = [] (std::string args, std::string mem_args, std::string name) {
+      auto runner = [] (std::string args, std::string mem_args, std::string arg_seed, std::string name) {
         //FILE* process = popen(args.c_str(), "r");
-        auto [pid, pipeno] = SpawnTester(args, mem_args);
+        auto [pid, pipeno] = SpawnTester(args, mem_args, arg_seed);
         FilenoScope pipeno_scope(pipeno);
 
         //int posix_handle = fileno(process);
@@ -541,16 +546,18 @@ void FuzzingLoop(CommandLineArgument& args) {
         
       };
 
+      int64_t arg_seed = re();
+
       // Parallelize
-      auto v8_task = std::async(std::launch::async, runner, v8_args, mem_args, "v8");
-      
+      auto v8_task = std::async(std::launch::async, runner, v8_args, mem_args, std::to_string(arg_seed), "v8");
+      auto spidermonkey_task = std::async(std::launch::async, runner, spidermonkey_args, mem_args, std::to_string(arg_seed), "spidermonkey");
+
       auto [v8_success, 
             v8_log, 
             v8_timeout, 
             v8_signal] = v8_task.get();
 
-      auto spidermonkey_task = std::async(std::launch::async, runner, spidermonkey_args, mem_args, "spidermonkey");
-
+      
       auto [spidermonkey_success, 
             spidermonkey_log, 
             spidermonkey_timeout, 
@@ -564,7 +571,7 @@ void FuzzingLoop(CommandLineArgument& args) {
         std::cout << " spidermonkey failed";
       }
 
-      auto memstep = entities.StoreMemoryStepping(step, i);
+      auto memstep = entities.StoreMemoryStepping(step, i, arg_seed);
       
       auto v8_id = entities.StoreTestCase(memstep, (int)dfw::db::Entities::ID::V8, 
                                           std::time(NULL), v8_success, v8_timeout, v8_signal);

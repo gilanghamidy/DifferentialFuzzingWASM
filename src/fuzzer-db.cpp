@@ -19,7 +19,8 @@ namespace dfw::db {
   QUINCE_MAP_CLASS(MemoryStepping, 
     (id)
     (stepping_id)
-    (step))
+    (step)
+    (arg_seed))
 
   QUINCE_MAP_CLASS(Implementation, 
     (id)
@@ -155,8 +156,8 @@ namespace dfw::db {
     return this->internal->steppings.insert(Stepping { {}, seed_id, step });
   }
   
-  quince::serial Entities::StoreMemoryStepping(quince::serial stepping_id, int64_t step) {
-    return this->internal->memory_steppings.insert(MemoryStepping { {}, stepping_id, step });
+  quince::serial Entities::StoreMemoryStepping(quince::serial stepping_id, int64_t step, int64_t arg_seed) {
+    return this->internal->memory_steppings.insert(MemoryStepping { {}, stepping_id, step, arg_seed });
   }
   
   quince::serial Entities::StoreTestCase(quince::serial memorystepping_id, int implementation_id, int64_t timestamp, bool success, bool timeout, int signal) {
