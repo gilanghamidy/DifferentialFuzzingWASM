@@ -131,5 +131,7 @@ namespace dfw::db {
     quince::serial StoreFunctionArgs(FunctionArgs obj);
     quince::serial StoreMemoryDiff(MemoryDiff obj);
     quince::serial StoreGlobalDiff(GlobalDiff obj);
+
+    void Flush();
   };
 }

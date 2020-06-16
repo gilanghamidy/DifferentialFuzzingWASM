@@ -144,7 +144,8 @@ void InstallSigaction() {
 }
 
 std::tuple<pid_t, int> SpawnTester(std::string const& path, 
-                                   std::string const& mem_path, 
+                                   std::string const& input_wasm,
+                                   std::string const& mem_path,
                                    std::string const& arg_seed) {
   pid_t pid;
 
@@ -167,7 +168,7 @@ std::tuple<pid_t, int> SpawnTester(std::string const& path,
     // Execute the runner
     execl(path.c_str(), path.c_str(),
                         "-mode", "single",
-                        "-input", "/dev/shm/randomized-wasm",
+                        "-input", input_wasm.c_str(),
                         "-memory", mem_path.c_str(),
                         "-arg-seed", arg_seed.c_str(),
                         (char*)0);
@@ -389,13 +390,15 @@ void FuzzingLoop(CommandLineArgument& args) {
 
   
   std::cout << "Argfolder: " << argfolder << std::endl;
+  std::string input_wasm = "/dev/shm/randomized-wasm-";
+  input_wasm += std::to_string(std::rand());
   {
     // Build argument
     std::stringstream ss;
     ss << argfolder << "random-gen";
     ss << " -block-size " << args.randomSize;
     ss << " -seed " << this_seed;
-    ss << " -output /dev/shm/randomized-wasm";
+    ss << " -output " << input_wasm;
     ss << " -memory /dev/shm/randomized-memory";
     ss << " > /dev/null";
     wasm_gen_cmd = ss.str();
@@ -419,6 +422,7 @@ void FuzzingLoop(CommandLineArgument& args) {
 
   // Store seed ID in DB
   auto seed = entities.StoreSeedConfig(this_seed, args.randomSize);
+  entities.Flush();
 
   std::cout << "seed: " << this_seed << "\n";
   for(int i = 0; i < 5000; i++) {
@@ -466,9 +470,9 @@ void FuzzingLoop(CommandLineArgument& args) {
       std::cout.flush();
 
       // Worker runner
-      auto runner = [] (std::string args, std::string mem_args, std::string arg_seed, std::string name) {
+      auto runner = [] (std::string args, std::string input_wasm, std::string mem_args, std::string arg_seed, std::string name) {
         //FILE* process = popen(args.c_str(), "r");
-        auto [pid, pipeno] = SpawnTester(args, mem_args, arg_seed);
+        auto [pid, pipeno] = SpawnTester(args, input_wasm, mem_args, arg_seed);
         FilenoScope pipeno_scope(pipeno);
 
         //int posix_handle = fileno(process);
@@ -549,8 +553,8 @@ void FuzzingLoop(CommandLineArgument& args) {
       int64_t arg_seed = re();
 
       // Parallelize
-      auto v8_task = std::async(std::launch::async, runner, v8_args, mem_args, std::to_string(arg_seed), "v8");
-      auto spidermonkey_task = std::async(std::launch::async, runner, spidermonkey_args, mem_args, std::to_string(arg_seed), "spidermonkey");
+      auto v8_task = std::async(std::launch::async, runner, v8_args, input_wasm, mem_args, std::to_string(arg_seed), "v8");
+      auto spidermonkey_task = std::async(std::launch::async, runner, input_wasm, spidermonkey_args, mem_args, std::to_string(arg_seed), "spidermonkey");
 
       auto [v8_success, 
             v8_log, 
@@ -587,6 +591,9 @@ void FuzzingLoop(CommandLineArgument& args) {
         std::cout << "Exitting..." << std::endl;
         goto END;
       }
+
+      if(i % 100 == 0 && i != 0)
+        entities.Flush(); // Write every 100 records
     }
   }
 

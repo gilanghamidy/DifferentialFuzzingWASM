@@ -46,6 +46,7 @@ namespace dfw::db {
     (id)
     (testcase_id)
     (functioncall_id)
+    (elapsed)
     (success)
     (result_value))
 
@@ -80,6 +81,8 @@ namespace dfw::db {
     quince::serial_table<MemoryDiff> memory_diffs;
     quince::serial_table<GlobalDiff> global_diffs;
     quince::serial_table<FunctionArgs> function_args;
+
+    std::optional<quince::transaction> tx;
     
     Internal(std::string const& filename, bool initialize_new_db) : 
         db{filename}, 
@@ -128,6 +131,8 @@ namespace dfw::db {
       if(initialize_new_db) {
         InitNewDb();
       }
+
+      tx.emplace(db);
     }
 
     void InitNewDb() {
@@ -145,7 +150,14 @@ namespace dfw::db {
   }
 
   Entities::~Entities() {
+    this->internal->tx->commit();
+    this->internal->tx.reset();
+  }
 
+  void Entities::Flush() {
+    this->internal->tx->commit();
+    this->internal->tx.reset();
+    this->internal->tx.emplace(this->internal->db);
   }
 
   quince::serial Entities::StoreSeedConfig(int64_t seed, int64_t blocksize) {
