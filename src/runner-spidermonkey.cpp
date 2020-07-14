@@ -37,7 +37,7 @@ namespace {
         dfw::FunctionInfo info;
         info.function_name = func.name;
         info.return_type = (dfw::WasmType)func.returnType;
-        
+        info.instruction_address = func.instruction_address;
         for(auto param : func.parameters)
           info.parameters.push_back((dfw::WasmType)param);
         
@@ -86,6 +86,11 @@ namespace {
         
 
       return true;
+    }
+
+    uintptr_t GetWasmMemoryAddress() {
+      auto wasmMem = this->compiled_wasm->GetWasmMemory();
+      return (uintptr_t)wasmMem.buffer;
     }
 
     bool InitializeExecution() {

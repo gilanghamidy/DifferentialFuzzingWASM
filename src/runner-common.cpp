@@ -174,15 +174,29 @@ void dfw::FuzzerRunnerBase::Looper() {
         std::cout << "Dumping function: " << input << std::endl;
         dfw::DumpDisassemble(std::cout, func_dump.value());
       }
+    } else if(input == "dumpfile") {
+      std::string filename;
+      std::cin >> input;
+      std::cin >> filename;
+      if(auto func_dump = DumpFunction(input); !func_dump) {
+        std::cout << "Unknown function: " << input << std::endl;
+      } else {
+        std::cout << "Dumping function: " << input << " to file: " << filename << std::endl;
+        std::ofstream ofile(filename, std::ios::out);
+        ofile.write((const char*)func_dump.value().data(), func_dump.value().size());
+        ofile.flush();
+      }
     } else if(input == "list") {
       for(dfw::FunctionInfo const& info : Functions()) {
-        std::cout << "func \"" << info.function_name << "\" (param ";
+        std::cout << std::hex << "0x" << info.instruction_address << std::dec;
+        std::cout << " func \"" << info.function_name << "\" (param ";
         bool first = true;
         for(auto t : info.parameters) {
           if(first) first = false; else std::cout << ", ";
           std::cout << WasmTypeToString(t);
         }
         std::cout << ") (return " << WasmTypeToString(info.return_type) << ")";
+        
         std::cout << std::endl;
       }
     } else if(input == "invoke") {
@@ -270,6 +284,9 @@ void dfw::FuzzerRunnerBase::Looper() {
       std::cin >> input; // memory file
       LoadMemory(input.c_str());
       std::cout << "Memory imported." << std::endl;
+    } else if(input == "memaddr") { 
+      auto addr = GetWasmMemoryAddress();
+      std::cout << "0x" << std::hex << addr << std::dec << std::endl;
     } else if(input == "listglobal") {
       for(dfw::GlobalInfo const& info : Globals()) {
         std::cout << info.global_name << ": ";
@@ -322,6 +339,28 @@ void dfw::FuzzerRunnerBase::Looper() {
     } else if (input == "getglobal") { 
       std::cin >> input;
       PrintJSValue(this->GetGlobal(input));
+    } else if (input == "singlerun") {
+      try {
+        // Write to output file
+        std::cout << "Enter output file: ";
+        std::cin >> input;
+        int outputbuf = open(input.c_str(), O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
+        dup2(outputbuf, COMMON_FILE_DESCRIPTOR);
+        //close(outputbuf);
+
+        std::cout << "Enter arg seed: ";
+        int64_t arg_seed;
+        std::cin >> arg_seed;
+        
+        std::cout << "Enter memory file: ";
+        std::cin >> input;
+
+        SingleRun(arg_seed, 50, input.c_str());
+        close(COMMON_FILE_DESCRIPTOR);
+      } catch(std::exception const& ex) {
+        std::cout << "Wrong value entered!" << std::endl;
+        std::cout << ex.what() << std::endl;
+      }
     } else {
       std::cout << "Unknown command: " << input << std::endl;
     }      
@@ -364,7 +403,13 @@ dfw::JSValue GetRandomValue(dfw::WasmType type, dfw::RandomGenerator& random) {
   return ret;
 }
 
-bool dfw::FuzzerRunnerBase::SingleRun(dfw::FuzzerRunnerCLArgs const& args) {
+namespace {
+  int ctr = 0;
+}
+
+extern "C" void HookIteration(int cnt) { ctr = cnt; }
+
+bool dfw::FuzzerRunnerBase::SingleRun(int64_t arg_seed, int iter_count, char const* memory_file, bool wait_debug) {
   using namespace rapidjson;
 
   auto flag = fcntl(COMMON_FILE_DESCRIPTOR, F_GETFD);
@@ -378,16 +423,25 @@ bool dfw::FuzzerRunnerBase::SingleRun(dfw::FuzzerRunnerCLArgs const& args) {
   }
   
   std::optional<std::vector<uint8_t>> memory;
-  std::cout << "Load memory: " << args.memory.value << std::endl;
-  if(args.memory.set) {
-    memory.emplace(LoadMemory(args.memory.value));
+  std::cout << "Load memory: " << memory_file << std::endl;
+  if(memory_file != nullptr) {
+    memory.emplace(LoadMemory(memory_file));
   }
+
+  std::cout << "Memory Address: 0x" << std::hex << GetWasmMemoryAddress() << std::dec << std::endl;
+
+  if(wait_debug) {
+    std::string buf;
+    std::cout << "Press enter to continue..." << std::endl;
+    std::getline(std::cin, buf);
+  }
+
   //std::cout << "Initialize execution" << std::endl;
   RETURN_IF_FALSE(InitializeExecution());
 
   // Loop function call, cover all possible functions
   //std::cout << "Get functions" << std::endl;
-  RandomGenerator random { args.arg_seed.value };
+  RandomGenerator random { arg_seed };
   auto funcs = Functions();
   size_t func_count = funcs.size();
   //std::cout << "Start Looping\n" << std::endl;
@@ -407,9 +461,8 @@ bool dfw::FuzzerRunnerBase::SingleRun(dfw::FuzzerRunnerCLArgs const& args) {
     global_state.emplace(global.global_name, init_val);
   }
 
-  for(int i = 0; i < args.count.value; ++i) {
-    if(i != 0) *output << ",";
-
+  for(int i = 0; i < iter_count; ++i) {
+    HookIteration(i);
     // Prepare JSON Logging
     Document report;
     auto& reportArr = report.SetObject();
@@ -481,6 +534,7 @@ bool dfw::FuzzerRunnerBase::SingleRun(dfw::FuzzerRunnerCLArgs const& args) {
       reportArr.AddMember(Value("GlobalDiff"), globalDiff.Move(), allocator);
     }
 
+    if(i != 0) *output << ",";
     OStreamWrapper osw(*output);
     Writer<OStreamWrapper> writer(osw);
     report.Accept(writer);
@@ -577,9 +631,27 @@ int dfw::FuzzerRunnerBase::Run(int argc, char const* argv[]) {
   if(std::strcmp(args.mode, "interactive") == 0) {
     Looper();
   } else if(std::strcmp(args.mode, "single") == 0) {
-    ERROR_IF_FALSE(SingleRun(args), "Failed executing test case.");
+    ERROR_IF_FALSE(SingleRun(args.arg_seed.value, args.count.value, args.memory.set ? args.memory.value : nullptr), "Failed executing test case.");
   } else if(std::strcmp(args.mode, "invoke") == 0) {
     ERROR_IF_FALSE(InvokeFunction(args), "Failed invoking function.");
+  } else if(std::strcmp(args.mode, "debug") == 0) {
+    // Force compile all function and print the address
+    for(dfw::FunctionInfo const& info : Functions()) {
+      DumpFunction(info.function_name);
+    }
+    for(dfw::FunctionInfo const& info : Functions()) {
+      std::cout << std::hex << "0x" << info.instruction_address << std::dec;
+      std::cout << " func \"" << info.function_name << "\" (param ";
+      bool first = true;
+      for(auto t : info.parameters) {
+        if(first) first = false; else std::cout << ", ";
+        std::cout << WasmTypeToString(t);
+      }
+      std::cout << ") (return " << WasmTypeToString(info.return_type) << ")";
+      
+      std::cout << std::endl;
+    }
+    ERROR_IF_FALSE(SingleRun(args.arg_seed.value, args.count.value, args.memory.set ? args.memory.value : nullptr, true), "Failed executing test case.");
   }
   return 0;
 }

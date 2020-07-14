@@ -1,3 +1,5 @@
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 # runner-common sources
 SET(RUNNER_COMMON_SRC runner-common.cpp)
@@ -110,5 +112,13 @@ add_custom_command(OUTPUT memory/zero.mem
 
 add_custom_target(generating-memory DEPENDS memory/zero.mem)
 add_dependencies(runner-coordinator generating-memory)
+
+add_custom_command(OUTPUT snapshot_blob.bin
+    COMMAND ln ../third-party/v8/snapshot_blob.bin ./
+    DEPENDS build-v8
+    COMMENT "Linking snapshot_blob.bin to src directory")
+
+add_custom_target(linking-snapshot DEPENDS snapshot_blob.bin)
+add_dependencies(runner-coordinator linking-snapshot)
 
 # target_compile_options(runner-coordinator PUBLIC -E)

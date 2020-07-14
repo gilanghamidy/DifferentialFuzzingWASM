@@ -17,7 +17,7 @@ private:
   v8::Isolate* isolate;
   v8::Local<v8::Context>& context;
   v8::ext::CompiledWasm compiled_wasm;
-  std::vector<dfw::FunctionInfo> functions;
+  mutable std::vector<dfw::FunctionInfo> functions;
   std::vector<dfw::GlobalInfo> globals;
 
   dfw::JSValue MarshallValue(v8::Local<v8::Value> const& ref);
@@ -31,12 +31,32 @@ public:
   bool MarshallMemoryImport(uint8_t* source, size_t len);
   bool InitializeExecution();
   std::tuple<std::optional<dfw::JSValue>, uint64_t> InvokeFunction(std::string const& name, std::vector<dfw::JSValue> const& args);
-  std::vector<dfw::FunctionInfo> const& Functions() const { return functions; }
+  std::vector<dfw::FunctionInfo> const& Functions() const { 
+    functions.clear();
+
+    // Fill reflection information
+    for(auto& func : this->compiled_wasm.Functions()) {
+      dfw::FunctionInfo info;
+      info.function_name = func.Name();
+      info.return_type = (dfw::WasmType)func.ReturnType();
+      info.instruction_address = func.InstructionAddress();
+      for(auto param : func.Parameters())
+        info.parameters.push_back((dfw::WasmType)param);
+      
+      functions.emplace_back(std::move(info));
+    }
+    return functions; 
+  }
   std::vector<dfw::GlobalInfo> const& Globals() const { return globals; }
   void SetGlobal(std::string const& arg, dfw::JSValue value);
   dfw::JSValue GetGlobal(std::string const& arg);
   std::vector<dfw::MemoryDiff> CompareInternalMemory(std::vector<uint8_t>& buffer);
   ~RunnerV8();
+
+  uintptr_t GetWasmMemoryAddress() {
+    auto wasmMem = this->compiled_wasm.GetWasmMemory();
+    return (uintptr_t)wasmMem.buffer.get();
+  }
 };
 
 
@@ -50,17 +70,7 @@ bool RunnerV8::InitializeModule(dfw::FuzzerRunnerCLArgs args) {
   if(!res.IsNothing()) {
     this->compiled_wasm = res.ToChecked();
 
-    // Fill reflection information
-    for(auto& func : this->compiled_wasm.Functions()) {
-      dfw::FunctionInfo info;
-      info.function_name = func.Name();
-      info.return_type = (dfw::WasmType)func.ReturnType();
-      
-      for(auto param : func.Parameters())
-        info.parameters.push_back((dfw::WasmType)param);
-      
-      this->functions.emplace_back(std::move(info));
-    }
+    
 
     // New Global Import to populate the globals
     

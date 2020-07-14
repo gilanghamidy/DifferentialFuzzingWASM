@@ -197,7 +197,7 @@ std::tuple<pid_t, int, int> SpawnGenerator(
     
     dup2(fd[0], STDIN_FILENO); // Copy to STDIN
     dup2(fd[1], STDOUT_FILENO); // Copy to STDOUT
-    //dup2(fd[1], STDERR_FILENO); // Copy STDERR to STDOUT
+    dup2(fd[1], STDERR_FILENO); // Copy STDERR to STDOUT
     close(fd[1]); // Close existing file
     close(fd[0]); // Close existing file
 
@@ -236,6 +236,14 @@ void CompareLogs(std::string& v8_log,
 
   using namespace rapidjson;
 
+  if(v8_log.length() == 0 || moz_log.length() == 0) { 
+    if (v8_log.length() == 0)
+      std::cout << "v8 empty log ";
+    if (moz_log.length() == 0)
+      std::cout << "moz empty log ";
+    return; 
+  }
+
   // Fix the crash cases
   if(v8_log.length() > 0 && *v8_log.rbegin() != ']') v8_log += ']';  
   if(moz_log.length() > 0 && *moz_log.rbegin() != ']') moz_log += ']';
@@ -246,6 +254,11 @@ void CompareLogs(std::string& v8_log,
   Document moz_log_doc;
   moz_log_doc.Parse(moz_log.c_str());
 
+  std::cout << "Processing Log:" << std::endl;
+
+  //std::cout << v8_log << std::endl << std::endl;
+  //std::cout << moz_log << std::endl;
+
   // Starts with an array
   auto v8_log_iter = v8_log_doc.Begin();
   auto moz_log_iter = moz_log_doc.Begin();
@@ -254,6 +267,7 @@ void CompareLogs(std::string& v8_log,
 
   // When everything is still the same
   while(v8_log_iter != v8_log_doc.End() && moz_log_iter != moz_log_doc.End()) {
+    
     // Get the object
     decltype(auto) v8_exec = v8_log_iter->GetObject();
     decltype(auto) moz_exec = moz_log_iter->GetObject();
@@ -329,27 +343,27 @@ void CompareLogs(std::string& v8_log,
     if(v8_exec.HasMember("GlobalDiff")) {
       for(auto& member : v8_exec["GlobalDiff"].GetObject()) {
         auto index = std::strtol(member.name.GetString(), nullptr, 10);
-        auto old_val = member.value[0].GetInt64();
-        auto new_val = member.value[1].GetInt64();
-        
-        entities.StoreGlobalDiff(dfw::db::GlobalDiff {
-          {}, v8_case, index, old_val, new_val
-        });
-      }
-    }
-    if(moz_exec.HasMember("GlobalDiff")) {
-      for(auto& member : moz_exec["GlobalDiff"].GetObject()) {
-        auto index = std::strtol(member.name.GetString(), nullptr, 10);
-        auto old_val = member.value[0].GetInt64();
-        auto new_val = member.value[1].GetInt64();
+        auto old_val = (int64_t)std::strtoull(member.value[0].GetString(), nullptr, 10);
+        auto new_val = (int64_t)std::strtoull(member.value[1].GetString(), nullptr, 10);
 
         entities.StoreGlobalDiff(dfw::db::GlobalDiff {
           {}, moz_case, index, old_val, new_val
         });
       }
     }
+    if(moz_exec.HasMember("GlobalDiff")) {
+      for(auto& member : moz_exec["GlobalDiff"].GetObject()) {
+        auto index = std::strtol(member.name.GetString(), nullptr, 10);
+        auto old_val = (int64_t)std::strtoull(member.value[0].GetString(), nullptr, 10);
+        auto new_val = (int64_t)std::strtoull(member.value[1].GetString(), nullptr, 10);
 
+        entities.StoreGlobalDiff(dfw::db::GlobalDiff {
+          {}, moz_case, index, old_val, new_val
+        });
+      }
+    }
     sequence++;
+    std::cout << "o";
   }
 }
 
@@ -391,7 +405,7 @@ void FuzzingLoop(CommandLineArgument& args) {
   
   std::cout << "Argfolder: " << argfolder << std::endl;
   std::string input_wasm = "/dev/shm/randomized-wasm-";
-  input_wasm += std::to_string(std::rand());
+  input_wasm += std::to_string(this_seed);
   {
     // Build argument
     std::stringstream ss;
@@ -554,7 +568,7 @@ void FuzzingLoop(CommandLineArgument& args) {
 
       // Parallelize
       auto v8_task = std::async(std::launch::async, runner, v8_args, input_wasm, mem_args, std::to_string(arg_seed), "v8");
-      auto spidermonkey_task = std::async(std::launch::async, runner, input_wasm, spidermonkey_args, mem_args, std::to_string(arg_seed), "spidermonkey");
+      auto spidermonkey_task = std::async(std::launch::async, runner, spidermonkey_args, input_wasm, mem_args, std::to_string(arg_seed), "spidermonkey");
 
       auto [v8_success, 
             v8_log, 
@@ -598,6 +612,9 @@ void FuzzingLoop(CommandLineArgument& args) {
   }
 
 END:
+  entities.Flush();
+  os << "q" << std::endl;
+  os.flush();
   return;
 }
 

@@ -3,8 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 project(DifferentialFuzzingWASM VERSION 0.1)
 
 # Requirements
-
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 find_library(SQLITE_LIB sqlite3)
@@ -46,10 +45,10 @@ add_subdirectory (third-party/wabt)
 # Build the buildscript for SpiderMonkey
 message(STATUS "Generate Build for SpiderMonkey")
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/spidermonkey)
-execute_process(COMMAND /bin/sh ${CMAKE_SOURCE_DIR}/third-party/gecko-dev/js/src/configure.in --enable-debug --disable-tests --disable-gtest-in-build --disable-optimize JS_STANDALONE --disable-jemalloc
+execute_process(COMMAND /bin/sh ${CMAKE_SOURCE_DIR}/third-party/gecko-dev/js/src/configure.in --enable-debug --disable-tests --disable-gtest-in-build JS_STANDALONE --disable-jemalloc
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/spidermonkey
     RESULT_VARIABLE RES_MOZ_GEN
-    OUTPUT_FILE "/proc/self/fd/0")
+    OUTPUT_FILE "/proc/self/fd/0") 
 
 # Read SpiderMonkey version
 file(READ ${CMAKE_BINARY_DIR}/third-party/spidermonkey/binaries.json MOZ_BINARIES_JSON)
@@ -71,7 +70,7 @@ if(NOT DEFINED V8_ARGS_DEBUG)
     set(V8_ARGS_DEBUG "false")
 endif()
 
-set(V8_GEN_ARGS "is_debug=${V8_ARGS_DEBUG} target_cpu=\"x64\" v8_target_cpu=\"x64\" v8_enable_disassembler=true v8_enable_v8_checks=true v8_expose_symbols=true v8_optimized_debug=true is_component_build=true use_custom_libcxx=false v8_enable_test_features=true")
+set(V8_GEN_ARGS "is_debug=${V8_ARGS_DEBUG} symbol_level=2 target_cpu=\"x64\" v8_target_cpu=\"x64\" v8_enable_disassembler=true v8_enable_v8_checks=true v8_expose_symbols=true v8_optimized_debug=true is_component_build=true use_custom_libcxx=false v8_enable_test_features=true")
 
 # Get relative path
 execute_process(COMMAND python -c "import os.path; print os.path.relpath(\"${CMAKE_BINARY_DIR}/third-party/v8\", \"${CMAKE_SOURCE_DIR}/third-party/v8\")"
@@ -92,7 +91,6 @@ add_custom_target(build-v8 ninja
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/third-party/v8
     DEPENDS build-moz # Ordering the build
     USES_TERMINAL)
-
 
 if(${RES_MOZ_GEN})
     message(FATAL_ERROR "Something wrong with generating build for SpiderMonkey: " ${RES_MOZ_GEN} )

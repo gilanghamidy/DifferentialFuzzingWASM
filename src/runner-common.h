@@ -177,6 +177,7 @@ struct FunctionInfo {
   std::string function_name;
   WasmType return_type;
   std::vector<WasmType> parameters;
+  intptr_t instruction_address;
 };
 
 struct GlobalInfo {
@@ -200,6 +201,7 @@ struct JSValue {
   }
 };
 
+/*
 struct DataRange {
   std::vector<uint8_t> const& data;
   std::vector<uint8_t>::const_iterator pos;
@@ -222,7 +224,7 @@ struct DataRange {
     pos += need;
     return ret;
   }
-};
+};*/
 
 struct RandomGenerator {
   std::mt19937_64 randomizer;
@@ -256,29 +258,42 @@ template<typename T>
 using StorageSelectorT = typename StorageSelector<T>::Type;
 
 template<>
-inline bool DataRange::get<bool>() {
+inline bool RandomGenerator::get<bool>() {
   return get<uint8_t>() % 2 == 0;
 }
 
 template<>
-inline double DataRange::get<double>() {
+inline double RandomGenerator::get<double>() {
   // Try getting value first
   uint64_t temp = get<uint64_t>();
+  
+  // This is undefined behavior, but works in many cases
   double val = *reinterpret_cast<double*>(&temp);
-  if(std::isnan(val))
-    return std::numeric_limits<double>::quiet_NaN();
-  else
+  
+  // Until C++20 standard is released with std::bit_cast, 
+  // this is the defined-behavior way to copy bitwise value
+  //double val;
+  //std::memcpy(&val, &temp, sizeof(val));
+
+  // Check NaN value, and flatten the NaN if it is.
+  //if(std::isnan(val))
+    //return std::numeric_limits<double>::quiet_NaN();
+  //else
     return val;
 }
 
 template<>
-inline float DataRange::get<float>() {
+inline float RandomGenerator::get<float>() {
   // Try getting value first
   uint32_t temp = get<uint32_t>();
+
   float val = *reinterpret_cast<float*>(&temp);
-  if(std::isnan(val))
-    return std::numeric_limits<float>::quiet_NaN();
-  else
+  //float val;
+  //std::memcpy(&val, &temp, sizeof(val));
+
+  //if(std::isnan(val))
+    //return std::numeric_limits<float>::quiet_NaN();
+  //else
     return val;
 }
 
@@ -300,7 +315,7 @@ public:
   void Looper();
   std::vector<uint8_t> LoadMemory(char const* memfile);
   std::vector<dfw::JSValue> GenerateArgs(std::vector<WasmType> const& param_types, RandomGenerator& random);
-  bool SingleRun(dfw::FuzzerRunnerCLArgs const& args);
+  bool SingleRun(int64_t arg_seed, int iter_count, char const* memory_file, bool wait_debug = false);
   bool InvokeFunction(dfw::FuzzerRunnerCLArgs const& args);
   int Run(int argc, char const* argv[]);
 
@@ -314,6 +329,7 @@ public:
   virtual std::vector<GlobalInfo> Globals() = 0;
   virtual void SetGlobal(std::string const& arg, JSValue value) = 0;
   virtual JSValue GetGlobal(std::string const& arg) = 0;
+  virtual uintptr_t GetWasmMemoryAddress() = 0;
   virtual ~FuzzerRunnerBase();
 };
 
@@ -362,6 +378,10 @@ public:
 
   virtual std::vector<MemoryDiff> CompareInternalMemory(std::vector<uint8_t>& buffer) {
     return runner.CompareInternalMemory(buffer);
+  }
+
+  virtual uintptr_t GetWasmMemoryAddress() {
+    return runner.GetWasmMemoryAddress();
   }
 };
 

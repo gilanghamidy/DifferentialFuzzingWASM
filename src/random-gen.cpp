@@ -46,11 +46,6 @@ size_t GenerateRandomWASM(CommandLineArgument& args,
   std::for_each(dataBeginAsInt32, 
                 dataEndAsInt32, 
                 [&] (uint32_t& val) { val = re(); });
-
-  {
-    std::ofstream output_bin("random.bin", std::ios::out);
-    output_bin.write((char const*)randomizedData.data(), randomizedData.size());
-  }
   
   //std::cout << "Generating WASM...\n";
   std::vector<uint8_t> generatedWasm;
@@ -66,8 +61,8 @@ size_t GenerateRandomWASM(CommandLineArgument& args,
   }
 
   //std::cout << "Writing WASM...\n";
-  std::cout << "w" << std::endl;
-  std::cout.flush();
+  //std::cout << "w" << std::endl;
+  //std::cout.flush();
 
   output.write((char const*)generatedWasm.data(), generatedWasm.size());
   output.flush();
@@ -104,8 +99,8 @@ void GenerateMemory(CommandLineArgument& args,
                       mem_page_buffer.size() * sizeof(decltype(mem_page_buffer)::value_type));
   }
 
-  std::cout << "m" << std::endl;
-  std::cout.flush();
+  //std::cout << "m" << std::endl;
+  //std::cout.flush();
 }
 
 int main(int argc, char const* argv[]) {
