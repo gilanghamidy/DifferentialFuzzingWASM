@@ -1,0 +1,27 @@
+<html>
+  <head>
+    <script type="application/javascript">
+      WebAssembly.compileStreaming(fetch("different.wasm"))
+      .then((x) => {
+        return WebAssembly.instantiate(x)
+      }).then((x) => {
+        var text = "";
+        var c_str_ptr = x.exports.am_i_spidermonkey();
+
+        // Print the C string
+        const buffer = new Uint8Array(x.exports.string.buffer)
+        while(buffer[c_str_ptr] != 0) {
+          text += String.fromCharCode(buffer[c_str_ptr++]);
+        }
+
+        var h1 = document.createElement("h1");
+        var node = document.createTextNode(text);
+        h1.appendChild(node);
+        document.body.appendChild(h1);
+      });
+    </script>
+  </head>
+  <body>
+
+  </body>
+</html>

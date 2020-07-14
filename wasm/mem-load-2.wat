@@ -1,42 +1,21 @@
 (module
-  (type (;0;) (func (param i32 i32 i32) (result i32)))
-  (type (;1;) (func (param f64 i32 f64 i32 i32 f64 f32)))
-  (type (;2;) (func (param f32 i64 f32 f32) (result i32)))
-  (import "" "mem" (memory $.mem 16 32))
-  (func (;0;) (type 0) (param i32 i32 i32) (result i32)
-    (local f32 f32 i32 f64 i64 i64 i32 i64 f64 f32 i64 f32 f64 i32 f32 f64 i64 f32 i64 i64 i32 f64 f64 i32)
+  (import "thesis" "memory" (memory $mem 16 32))
+  (import "thesis" "global1" (global $global1 (mut i32)))
+  (import "thesis" "table" (table 1 funcref))
+  (import "thesis" "ext_mul" (func $ext_mul (type $op)))
+
+  (type $op (func (param i32 i32)(result i32)))
+  (func $add (type $op) (i32.add (local.get 0)(local.get 1)))
+  (func $sub (type $op) (i32.sub (local.get 0)(local.get 1)))
+  
+
+  (func $compute (param i32) (result i32)
     local.get 0
-    i32.load offset=9652
-    i32.const 3
-    i32.mul 
-  )
-  (global (;0;) i64 (i64.const 0))
-  (global (;1;) (mut i32) (i32.const 0))
-  (global (;2;) (mut i32) (i32.const 0))
-  (global (;3;) (mut i32) (i32.const 0))
-  (global (;4;) i64 (i64.const 0))
-  (global (;5;) (mut f64) (f64.const 0x0p+0 (;=0;)))
-  (global (;6;) (mut i32) (i32.const 0))
-  (global (;7;) (mut i64) (i64.const 0))
-  (global (;8;) (mut f64) (f64.const 0x0p+0 (;=0;)))
-  (global (;9;) (mut i32) (i32.const 0))
-  (global (;10;) (mut i32) (i32.const 0))
-  (global (;11;) (mut i32) (i32.const 0))
-  (global (;12;) (mut f32) (f32.const 0x0p+0 (;=0;)))
-  (global (;13;) (mut f64) (f64.const 0x0p+0 (;=0;)))
-  (global (;14;) (mut i32) (i32.const 0))
-  (global (;15;) (mut i32) (i32.const 0))
-  (global (;16;) (mut i64) (i64.const 0))
-  (global (;17;) (mut i64) (i64.const 0))
-  (global (;18;) (mut i32) (i32.const 0))
-  (global (;19;) (mut i64) (i64.const 0))
-  (global (;20;) (mut f64) (f64.const 0x0p+0 (;=0;)))
-  (global (;21;) (mut f64) (f64.const 0x0p+0 (;=0;)))
-  (global (;22;) (mut f64) (f64.const 0x0p+0 (;=0;)))
-  (global (;23;) (mut f32) (f32.const 0x0p+0 (;=0;)))
-  (global (;24;) (mut f32) (f32.const 0x0p+0 (;=0;)))
-  (global (;25;) (mut i32) (i32.const 0))
-  (global (;26;) (mut f32) (f32.const 0x0p+0 (;=0;)))
-  (global (;27;) (mut i32) (i32.const 0))
-  (global (;28;) i32 (i32.const 0))
-  (export "main" (func 0)))
+    i32.load offset=0
+    global.get $global1
+    i32.const 0
+    call_indirect (type $op))
+  (export "compute" (func $compute))
+  (export "add" (func $add))
+  (export "sub" (func $sub))
+  (export "mul" (func $ext_mul)))
